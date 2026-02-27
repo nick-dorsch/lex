@@ -1,0 +1,7 @@
+{
+  "model": "opencode/gemini-3-flash",
+  "max_concurrency": 4,
+  "available_models": [
+    "opencode/gemini-3-flash"
+  ]
+}

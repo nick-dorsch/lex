@@ -1,0 +1,23 @@
+[tools]
+erlang = "26.2"
+elixir = "1.16"
+python = "3.13"
+uv = "latest"
+node = "24"
+task = "latest"
+lazygit = "latest"
+
+[hooks]
+enter = '''
+printf '\033[33m'
+printf '%s\n' \
+  '             ▄▄             ' \
+  '             ██             ' \
+  '             ██ ▄█▀█▄ ██ ██ ' \
+  '             ██ ██▄█▀  ███  ' \
+  '             ██ ▀█▄▄▄ ██ ██ '
+printf '\n'
+printf "A language learner's reading companion.\n"
+printf '\n'
+printf '\033[0m'
+'''
