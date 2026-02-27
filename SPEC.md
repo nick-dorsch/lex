@@ -2,7 +2,9 @@
 
 ## 1. Product Vision
 
-Lex is a focused reading companion for language learners. Users upload ebooks, read sentence-by-sentence, and build vocabulary through lightweight interaction instead of flashcard-heavy workflows.
+Lex is a focused reading companion for language learners. Users upload ebooks, read
+sentence-by-sentence, and build vocabulary through lightweight interaction instead of
+flashcard-heavy workflows.
 
 Core experience goals:
 
@@ -21,12 +23,16 @@ MVP language scope is fixed to Spanish learning for English speakers:
 By the end of V1, a user can:
 
 1. Create an account and upload an EPUB.
-2. Wait for processing to complete (chapter split, sentence split, tokenization, lemmatization).
-3. Open a reader UI and navigate with `j`/`k` between sentences and `w`/`b` between words.
+2. Wait for processing to complete (chapter split, sentence split, tokenization,
+   lemmatization).
+3. Open a reader UI and navigate with `j`/`k` between sentences and `w`/`b` between
+   words.
 4. Mark words as `learning`.
 5. Advance through sentences and have non-learning words automatically become `known`.
-6. Skip content (frontmatter, irrelevant sections) without promoting skipped words to `known`.
-7. Trigger LLM help with `space` for sentence-level or focused-word explanations in English for MVP.
+6. Skip content (frontmatter, irrelevant sections) without promoting skipped words to
+   `known`.
+7. Trigger LLM help with `space` for sentence-level or focused-word explanations in
+   English for MVP.
 8. Resume reading where they left off.
 
 ## 3. System Architecture
@@ -36,7 +42,7 @@ By the end of V1, a user can:
 - Backend and web: Elixir + Phoenix + Ecto
 - Database: SQLite (`ecto_sqlite3`)
 - NLP pipeline: Python CLI using Stanza
-- Frontend interaction: Phoenix LiveView + Alpine.js for keyboard and local UI behavior
+- Frontend interaction: Phoenix LiveView + minimal JS hooks for keyboard and local UI behavior
 - Dev task runner: go-task (`Taskfile.yml`)
 
 ### 3.2 High-level Flow
@@ -44,8 +50,10 @@ By the end of V1, a user can:
 1. User uploads EPUB in Phoenix.
 2. Elixir stores the file and creates a `document` row with `processing` status.
 3. Elixir calls Python CLI with input file path + language.
-4. Python parses EPUB into ordered sections (chapters), runs sentence/token/lemma analysis, and writes JSON output.
-5. Elixir ingests JSON output into SQLite (`document -> section -> sentence -> token`) and upserts lexemes.
+4. Python parses EPUB into ordered sections (chapters), runs sentence/token/lemma
+   analysis, and writes JSON output.
+5. Elixir ingests JSON output into SQLite (`document -> section -> sentence -> token`)
+   and upserts lexemes.
 6. Document status changes to `ready`, and the reader becomes available.
 
 ## 4. Domain Model
@@ -196,8 +204,10 @@ Scope rules:
 
 Transition rules:
 
-1. On first encounter in a sentence, each non-punctuation lexeme with no existing state becomes `seen`.
-2. Advancing to next sentence (`j`) promotes `seen -> known` for lexemes in the current sentence.
+1. On first encounter in a sentence, each non-punctuation lexeme with no existing state
+   becomes `seen`.
+2. Advancing to next sentence (`j`) promotes `seen -> known` for lexemes in the current
+   sentence.
 3. Lexemes marked `learning` stay `learning` when advancing.
 4. `known` never auto-demotes.
 5. Going backward (`k`) never changes lexeme state.
@@ -208,7 +218,8 @@ Transition rules:
 Sentence state is tracked per `(user, sentence)` with `unread | read`.
 
 1. Entering/loading a sentence does not mark it `read`.
-2. A sentence becomes `read` only when the user progresses past it via normal next action.
+2. A sentence becomes `read` only when the user progresses past it via normal next
+   action.
 3. Skipped sentences remain `unread`.
 4. Skip actions do not retroactively mark intermediate sentences as `read`.
 
@@ -301,14 +312,18 @@ No large badges or heavy panels in the reading area.
 
 ### 7.4 LLM help behavior
 
-- Pressing `space` with no focused token requests sentence explanation in English for MVP.
-- Pressing `space` with a focused token requests word explanation in English for MVP, using sentence context.
-- Each request is stored in `llm_help_requests` with `sentence_id` and optional `token_id`.
+- Pressing `space` with no focused token requests sentence explanation in English for
+MVP.
+- Pressing `space` with a focused token requests word explanation in English for MVP,
+using sentence context.
+- Each request is stored in `llm_help_requests` with `sentence_id` and optional
+`token_id`.
 - LLM help is assistive only; it does not directly change lexeme or sentence state.
 
 ## 8. Configuration and Secrets
 
-LLM provider settings are runtime-configured from environment variables (`.env` in local dev):
+LLM provider settings are runtime-configured from environment variables (`.env` in local
+dev):
 
 - `LEX_LLM_PROVIDER` selects provider (for example `openai`).
 - `LEX_LLM_MODEL` selects model per provider.
@@ -409,8 +424,10 @@ Must-have edge cases:
 ## 15. Locked Decisions
 
 - First lexeme encounter defaults to `seen`.
-- On normal sentence advance, the previous sentence becomes `read` and non-learning lexemes in that sentence become `known`.
-- Skip actions do not mark skipped sentences as `read`, and do not change token/lexeme state.
+- On normal sentence advance, the previous sentence becomes `read` and non-learning
+lexemes in that sentence become `known`.
+- Skip actions do not mark skipped sentences as `read`, and do not change token/lexeme
+state.
 - Vocabulary state is lexeme-scoped (word-level), not token-instance-scoped.
 - MVP supports Spanish reading (`es`) for English speakers (`en`).
 - `reading_events` is included in MVP.
@@ -418,6 +435,7 @@ Must-have edge cases:
 
 ## 16. Open Decisions to Confirm
 
-1. Whether skip behavior in V1 should support only single-step skipping, section-level skipping, or custom range skipping.
+1. Whether skip behavior in V1 should support only single-step skipping, section-level
+   skipping, or custom range skipping.
 2. Whether to cache LLM responses per `(sentence_id, token_id, response_language)`.
 3. Retention policy for stored LLM response text (full text vs redacted excerpt only).
