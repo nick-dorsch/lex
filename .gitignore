@@ -1,14 +1,21 @@
 # Elixir/Phoenix
-_build/
-deps/
-priv/static/assets/
-*.beam
-*.exs
-*.erl
-*.so
-*.o
-*.class
-*.crc
+/_build/
+/deps/
+/cover/
+/erl_crash.dump
+/priv/static/assets/
+/priv/static/cache_manifest.json
+
+# Database files
+/priv/repo/*.db
+/priv/repo/*.db-*
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
 
 # Python
 __pycache__/
@@ -18,22 +25,18 @@ __pycache__/
 .venv/
 venv/
 ENV/
-
-# SQLite/Database
-*.db
-*.sqlite
-*.sqlite3
-priv/repo/*.db
+.pytest_cache/
+.mypy_cache/
 
 # Environment/Secrets
 .env
+.env.*
 *.pem
 *.key
 
 # Uploads/User Content
-priv/static/uploads/
-uploads/
-*.epub
+/priv/static/uploads/
+/uploads/
 
 # Editor/IDE
 .vscode/
@@ -41,14 +44,8 @@ uploads/
 *.swp
 *.swo
 *~
-.project
-.classpath
 
-# OS Artifacts
+# OS/Logs
 .DS_Store
 Thumbs.db
 *.log
-
-# Build/Test Artifacts
-cover/
-_build_test/
