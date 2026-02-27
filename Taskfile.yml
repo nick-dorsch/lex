@@ -6,9 +6,19 @@ vars:
 tasks:
   test:
     desc: Run all tests
+    silent: true
     cmds:
       - echo "Running Python tests..."
       - uv run --directory {{.PYTHON_DIR}} pytest
       - echo ""
       - echo "Running Elixir tests..."
       - mix test
+
+  nlp-demo:
+    desc: Run CLI demo with sample Spanish text (use TEXT="your text" to customize)
+    aliases: [nlp]
+    silent: true
+    vars:
+      TEXT: '{{.TEXT | default "El gato come pescado. ¿Te gusta el café?"}}'
+    cmds:
+      - uv run --directory {{.PYTHON_DIR}} python lex_nlp.py --text "{{.TEXT}}" --output /tmp/lex_demo.json && jq . /tmp/lex_demo.json

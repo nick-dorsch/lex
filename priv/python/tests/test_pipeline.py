@@ -1,5 +1,10 @@
 """Smoke tests for the NLP pipeline."""
 
+import json
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 from lex_nlp.nlp_pipeline import NLPPipeline
 
@@ -102,3 +107,107 @@ class TestPipelineSmoke:
                     assert token_start >= prev_end
 
                 prev_end = token_end
+
+
+class TestCLI:
+    """Tests for the CLI interface."""
+
+    def test_cli_with_text_argument(self, tmp_path):
+        """Test CLI accepts --text argument and produces valid output."""
+        output_file = tmp_path / "output.json"
+        text = "El gato come."
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "lex_nlp.py",
+                "--text",
+                text,
+                "--output",
+                str(output_file),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0, f"CLI failed with: {result.stderr}"
+        assert output_file.exists()
+
+        data = json.loads(output_file.read_text())
+        assert "sentences" in data
+        assert len(data["sentences"]) == 1
+        assert data["sentences"][0]["text"] == "El gato come."
+
+    def test_cli_text_and_input_mutually_exclusive(self, tmp_path):
+        """Test that --text and --input cannot be used together."""
+        input_file = tmp_path / "input.txt"
+        input_file.write_text("Hola mundo.")
+        output_file = tmp_path / "output.json"
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "lex_nlp.py",
+                "--input",
+                str(input_file),
+                "--text",
+                "Direct text",
+                "--output",
+                str(output_file),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode != 0
+        assert (
+            "not allowed with argument" in result.stderr.lower()
+            or "mutually exclusive" in result.stderr.lower()
+        )
+
+    def test_cli_requires_text_or_input(self, tmp_path):
+        """Test that either --text or --input is required."""
+        output_file = tmp_path / "output.json"
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "lex_nlp.py",
+                "--output",
+                str(output_file),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode != 0
+        assert "required" in result.stderr.lower()
+
+    def test_cli_text_with_multilingual_content(self, tmp_path):
+        """Test CLI --text with accented characters and punctuation."""
+        output_file = tmp_path / "output.json"
+        text = "¿Cómo estás? ¡Muy bien!"
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "lex_nlp.py",
+                "--text",
+                text,
+                "--output",
+                str(output_file),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0, f"CLI failed with: {result.stderr}"
+
+        data = json.loads(output_file.read_text())
+        assert "sentences" in data
+        assert len(data["sentences"]) == 2
+
+        # Check that punctuation is correctly identified
+        first_sentence = data["sentences"][0]
+        assert first_sentence["tokens"][0]["surface"] == "¿"
+        assert first_sentence["tokens"][0]["is_punctuation"] is True

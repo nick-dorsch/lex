@@ -17,10 +17,14 @@ def main() -> int:
         Exit code (0 for success, 1 for error)
     """
     parser = argparse.ArgumentParser(description="Lex NLP pipeline for text processing")
-    parser.add_argument(
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument(
         "--input",
-        required=True,
         help="Path to UTF-8 text file",
+    )
+    input_group.add_argument(
+        "--text",
+        help="Text string to process directly",
     )
     parser.add_argument(
         "--language",
@@ -35,18 +39,23 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    # Validate input file exists
-    input_path = Path(args.input)
-    if not input_path.exists():
-        print(f"Error: Input file not found: {args.input}", file=sys.stderr)
-        return 1
+    # Get text from either file or direct argument
+    if args.input:
+        # Validate input file exists
+        input_path = Path(args.input)
+        if not input_path.exists():
+            print(f"Error: Input file not found: {args.input}", file=sys.stderr)
+            return 1
 
-    # Read input file (UTF-8)
-    try:
-        text = input_path.read_text(encoding="utf-8")
-    except Exception as e:
-        print(f"Error reading input file: {e}", file=sys.stderr)
-        return 1
+        # Read input file (UTF-8)
+        try:
+            text = input_path.read_text(encoding="utf-8")
+        except Exception as e:
+            print(f"Error reading input file: {e}", file=sys.stderr)
+            return 1
+    else:
+        # Use text argument directly
+        text = args.text
 
     # Empty text is valid - return empty sentences array
     if not text.strip():

@@ -10,7 +10,7 @@ config :lex, LexWeb.Endpoint,
   server: false
 
 config :lex, Lex.Repo,
-  database: Path.expand("../lex_test.db", __DIR__),
+  database: Path.expand("../priv/repo/lex_test.db", __DIR__),
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: 5
 
