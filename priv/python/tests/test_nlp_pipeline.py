@@ -1,7 +1,8 @@
 """Tests for the NLP pipeline."""
 
 import pytest
-from lex_nlp.nlp_pipeline import NLPPipeline, Token, Sentence, get_nlp, _nlp
+
+from lex_nlp.nlp_pipeline import NLPPipeline, Sentence, Token, get_nlp
 
 
 class TestModelCaching:

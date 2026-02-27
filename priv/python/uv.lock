@@ -237,6 +237,7 @@ source = { editable = "." }
 dependencies = [
     { name = "ebooklib" },
     { name = "lxml" },
+    { name = "pytest" },
     { name = "spacy" },
 ]
 
@@ -249,6 +250,7 @@ dev = [
 requires-dist = [
     { name = "ebooklib", specifier = ">=0.18" },
     { name = "lxml", specifier = ">=5.3.0" },
+    { name = "pytest", specifier = ">=9.0.2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.0" },
     { name = "spacy", specifier = ">=3.7.0" },
 ]

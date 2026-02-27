@@ -1,7 +1,7 @@
 ---
 description: Manages features, tasks and dependencies to the Ponder graph using the Ponder MCP server
 mode: primary
-model: zainode-alt/Qwen/Qwen3.5-397B-A17B-FP8
+model: zainode/moonshotai/Kimi-K2.5
 color: "#76db7d"
 temperature: 0.1
 tools:

@@ -1,0 +1,14 @@
+version: '3'
+
+vars:
+  PYTHON_DIR: priv/python
+
+tasks:
+  test:
+    desc: Run all tests
+    cmds:
+      - echo "Running Python tests..."
+      - uv run --directory {{.PYTHON_DIR}} pytest
+      - echo ""
+      - echo "Running Elixir tests..."
+      - mix test
