@@ -1,0 +1,54 @@
+# Elixir/Phoenix
+_build/
+deps/
+priv/static/assets/
+*.beam
+*.exs
+*.erl
+*.so
+*.o
+*.class
+*.crc
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+.venv/
+venv/
+ENV/
+
+# SQLite/Database
+*.db
+*.sqlite
+*.sqlite3
+priv/repo/*.db
+
+# Environment/Secrets
+.env
+*.pem
+*.key
+
+# Uploads/User Content
+priv/static/uploads/
+uploads/
+*.epub
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+
+# OS Artifacts
+.DS_Store
+Thumbs.db
+*.log
+
+# Build/Test Artifacts
+cover/
+_build_test/
