@@ -3,6 +3,8 @@ import Config
 config :lex,
   ecto_repos: [Lex.Repo]
 
+config :lex, Lex.Repo, adapter: Ecto.Adapters.SQLite3
+
 config :logger, :console,
   format: "$time $metadata[$level] $message\n",
   metadata: [:request_id]

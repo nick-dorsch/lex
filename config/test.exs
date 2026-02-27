@@ -9,4 +9,9 @@ config :lex, LexWeb.Endpoint,
   secret_key_base: "test_secret_key_base_not_for_production",
   server: false
 
+config :lex, Lex.Repo,
+  database: Path.expand("../lex_test.db", __DIR__),
+  pool: Ecto.Adapters.SQL.Sandbox,
+  pool_size: 5
+
 config :lex, :test, debug: false

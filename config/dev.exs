@@ -18,4 +18,10 @@ config :lex, LexWeb.Endpoint,
   secret_key_base: "dev_secret_key_base_not_for_production",
   live_reload: true
 
+config :lex, Lex.Repo,
+  database: Path.expand("../lex_dev.db", __DIR__),
+  pool_size: 5,
+  show_sensitive_data_on_connection_error: true,
+  stacktrace: true
+
 config :lex, :dev, debug: true

@@ -6,8 +6,10 @@ defmodule Lex.Application do
   @impl true
   def start(_type, _args) do
     children = [
+      Lex.Repo,
       LexWeb.Telemetry,
-      {Phoenix.PubSub, name: Lex.PubSub}
+      {Phoenix.PubSub, name: Lex.PubSub},
+      LexWeb.Endpoint
     ]
 
     opts = [strategy: :one_for_one, name: Lex.Supervisor]
