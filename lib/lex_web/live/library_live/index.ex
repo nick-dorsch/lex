@@ -26,8 +26,8 @@ defmodule LexWeb.LibraryLive.Index do
 
   defp get_user_id(_socket) do
     # Placeholder - in a real app, this would get the user from session/token
-    # For now, we'll query all documents and filter in the query
-    nil
+    # For now, hardcode user_id=1 as per spec
+    1
   end
 
   defp list_ready_documents_with_progress(user_id) do
@@ -42,6 +42,11 @@ defmodule LexWeb.LibraryLive.Index do
       progress = calculate_progress(document.id, user_id)
       Map.put(document, :progress, progress)
     end)
+  end
+
+  defp calculate_progress(_document_id, nil) do
+    # When no user is logged in, show 0% progress
+    0
   end
 
   defp calculate_progress(document_id, user_id) do

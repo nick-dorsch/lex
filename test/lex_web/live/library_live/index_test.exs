@@ -1,8 +1,7 @@
 defmodule LexWeb.LibraryLive.IndexTest do
-  use Lex.ConnCase, async: true
+  use Lex.ConnCase, async: false
 
   import Phoenix.LiveViewTest
-  import Ecto.Query
 
   alias Lex.Repo
   alias Lex.Accounts.User
@@ -104,7 +103,7 @@ defmodule LexWeb.LibraryLive.IndexTest do
 
     test "clicking document card navigates to reader", %{conn: conn} do
       user = create_user()
-      document = create_ready_document(user)
+      _document = create_ready_document(user)
 
       {:ok, view, _html} = live(conn, "/library")
 
@@ -123,7 +122,7 @@ defmodule LexWeb.LibraryLive.IndexTest do
     %User{}
     |> User.changeset(%{
       name: "Test User",
-      email: "test#{System.unique_integer()}@example.com",
+      email: "test#{System.unique_integer()}_#{:erlang.monotonic_time()}@example.com",
       primary_language: "en"
     })
     |> Repo.insert!()

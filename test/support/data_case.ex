@@ -8,14 +8,27 @@ defmodule Lex.DataCase do
 
   alias Ecto.Adapters.SQL.Sandbox
 
-  setup do
-    # Start a database sandbox connection
-    pid = Sandbox.start_owner!(Lex.Repo, shared: true)
+  using do
+    quote do
+      alias Lex.Repo
 
-    on_exit(fn ->
-      Sandbox.stop_owner(pid)
-    end)
+      import Ecto
+      import Ecto.Changeset
+      import Ecto.Query
+      import Lex.DataCase
+    end
+  end
 
+  setup tags do
+    setup_sandbox(tags)
     :ok
+  end
+
+  @doc """
+  Sets up the sandbox based on the test tags.
+  """
+  def setup_sandbox(tags) do
+    pid = Sandbox.start_owner!(Lex.Repo, shared: not tags[:async])
+    on_exit(fn -> Sandbox.stop_owner(pid) end)
   end
 end

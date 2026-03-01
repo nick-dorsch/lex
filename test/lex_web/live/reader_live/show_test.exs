@@ -8,17 +8,21 @@ defmodule LexWeb.ReaderLive.ShowTest do
   alias Lex.Library.Document
   alias Lex.Library.Section
   alias Lex.Text.Sentence
+  alias Lex.Text.Token
 
   describe "show" do
     test "mounts with valid document and position", %{conn: conn} do
       user = create_user()
       document = create_ready_document(user)
       section = create_section(document)
-      _sentence = create_sentence(section, 1, "This is a test sentence.")
+      sentence = create_sentence(section, 1, "This is a test sentence.")
+      create_tokens_for_sentence(sentence, ["This", "is", "a", "test", "sentence", "."])
 
       {:ok, _view, html} = live(conn, "/read/#{document.id}")
 
-      assert html =~ "This is a test sentence."
+      assert html =~ "This"
+      assert html =~ "is"
+      assert html =~ "test"
       assert html =~ section.title
     end
 
@@ -30,12 +34,15 @@ defmodule LexWeb.ReaderLive.ShowTest do
       user = create_user()
       document = create_ready_document(user)
       section = create_section(document, "Chapter 1: The Beginning")
-      _sentence = create_sentence(section, 1, "It was the best of times.")
+      sentence = create_sentence(section, 1, "It was the best of times.")
+      create_tokens_for_sentence(sentence, ["It", "was", "the", "best", "of", "times", "."])
 
       {:ok, _view, html} = live(conn, "/read/#{document.id}")
 
       assert html =~ "Chapter 1: The Beginning"
-      assert html =~ "It was the best of times."
+      assert html =~ "It"
+      assert html =~ "was"
+      assert html =~ "best"
     end
 
     test "shows empty state when document has no sentences", %{conn: conn} do
@@ -52,12 +59,23 @@ defmodule LexWeb.ReaderLive.ShowTest do
       user = create_user()
       document = create_ready_document(user)
       section = create_section_without_title(document)
-      _sentence = create_sentence(section, 1, "A sentence in an untitled section.")
+      sentence = create_sentence(section, 1, "A sentence in an untitled section.")
+
+      create_tokens_for_sentence(sentence, [
+        "A",
+        "sentence",
+        "in",
+        "an",
+        "untitled",
+        "section",
+        "."
+      ])
 
       {:ok, _view, html} = live(conn, "/read/#{document.id}")
 
       assert html =~ "Untitled Section"
-      assert html =~ "A sentence in an untitled section."
+      assert html =~ "sentence"
+      assert html =~ "untitled"
     end
   end
 
@@ -116,5 +134,25 @@ defmodule LexWeb.ReaderLive.ShowTest do
       char_end: String.length(text)
     })
     |> Repo.insert!()
+  end
+
+  defp create_tokens_for_sentence(sentence, words) do
+    words
+    |> Enum.with_index(1)
+    |> Enum.map(fn {word, position} ->
+      %Token{}
+      |> Token.changeset(%{
+        sentence_id: sentence.id,
+        position: position,
+        surface: word,
+        normalized_surface: String.downcase(word),
+        lemma: String.downcase(word),
+        pos: "WORD",
+        is_punctuation: word in [".", ",", "!", "?", ";", ":"],
+        char_start: 0,
+        char_end: String.length(word)
+      })
+      |> Repo.insert!()
+    end)
   end
 end

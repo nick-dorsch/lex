@@ -29,6 +29,7 @@ defmodule Lex.MixProject do
       {:phoenix_live_view, "~> 0.20.1"},
       {:phoenix_html, "~> 3.3"},
       {:phoenix_live_reload, "~> 1.4", only: :dev},
+      {:plug_cowboy, "~> 2.5"},
       {:ecto_sqlite3, ">= 0.0.0"},
       {:phoenix_ecto, "~> 4.4"},
       {:jason, "~> 1.4"},

@@ -6,7 +6,23 @@ defmodule Lex.ConnCase do
 
   use ExUnit.CaseTemplate
 
-  setup do
+  using do
+    quote do
+      # The default endpoint for testing
+      @endpoint LexWeb.Endpoint
+
+      use LexWeb, :verified_routes
+
+      # Import conveniences for testing with connections
+      import Plug.Conn
+      import Phoenix.ConnTest
+      import Phoenix.LiveViewTest
+      import Lex.ConnCase
+    end
+  end
+
+  setup tags do
+    Lex.DataCase.setup_sandbox(tags)
     {:ok, conn: Phoenix.ConnTest.build_conn()}
   end
 end
