@@ -3,7 +3,10 @@ defmodule Lex.ReaderTest do
 
   alias Lex.Reader
   alias Lex.Reader.ReadingPosition
+  alias Lex.Reader.UserSentenceState
   alias Lex.Repo
+
+  import Ecto.Query
 
   # Helper function to create a user
   defp create_user(attrs \\ %{}) do
@@ -233,6 +236,75 @@ defmodule Lex.ReaderTest do
 
       assert {:error, %Ecto.Changeset{} = changeset} = result
       assert changeset.errors[:user_id]
+    end
+  end
+
+  describe "mark_sentence_read/2" do
+    test "creates new sentence state with read status" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+
+      assert {:ok, state} = Reader.mark_sentence_read(user.id, sentence.id)
+      assert state.user_id == user.id
+      assert state.sentence_id == sentence.id
+      assert state.status == "read"
+      assert state.read_at != nil
+    end
+
+    test "updates existing sentence state to read" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+
+      # Create an existing unread state
+      {:ok, existing} =
+        %UserSentenceState{}
+        |> UserSentenceState.changeset(%{
+          user_id: user.id,
+          sentence_id: sentence.id,
+          status: "unread"
+        })
+        |> Repo.insert()
+
+      assert existing.status == "unread"
+      assert existing.read_at == nil
+
+      # Mark as read
+      assert {:ok, updated} = Reader.mark_sentence_read(user.id, sentence.id)
+      assert updated.id == existing.id
+      assert updated.status == "read"
+      assert updated.read_at != nil
+    end
+
+    test "is idempotent - multiple calls don't create duplicates" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+
+      # First call creates the record
+      assert {:ok, state1} = Reader.mark_sentence_read(user.id, sentence.id)
+
+      # Second call updates the same record
+      assert {:ok, state2} = Reader.mark_sentence_read(user.id, sentence.id)
+
+      # Third call still the same record
+      assert {:ok, state3} = Reader.mark_sentence_read(user.id, sentence.id)
+
+      # All should be the same record
+      assert state1.id == state2.id
+      assert state2.id == state3.id
+
+      # Verify only one record exists in database
+      count =
+        UserSentenceState
+        |> where(user_id: ^user.id, sentence_id: ^sentence.id)
+        |> Repo.aggregate(:count)
+
+      assert count == 1
     end
   end
 end

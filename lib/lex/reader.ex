@@ -5,6 +5,7 @@ defmodule Lex.Reader do
 
   alias Lex.Repo
   alias Lex.Reader.ReadingPosition
+  alias Lex.Reader.UserSentenceState
   alias Lex.Library.Document
   alias Lex.Library.Section
   alias Lex.Text.Sentence
@@ -151,5 +152,49 @@ defmodule Lex.Reader do
     %ReadingPosition{}
     |> ReadingPosition.changeset(attrs)
     |> Repo.insert()
+  end
+
+  @doc """
+  Marks a sentence as read for a user.
+
+  Creates or updates the user_sentence_state record, setting status to "read"
+  and recording the current timestamp. This function is idempotent - calling
+  it multiple times for the same user/sentence will not create duplicates.
+
+  ## Examples
+
+      iex> mark_sentence_read(user_id, sentence_id)
+      {:ok, %UserSentenceState{}}
+
+      iex> mark_sentence_read(invalid_user_id, sentence_id)
+      {:error, %Ecto.Changeset{}}
+  """
+  @spec mark_sentence_read(integer(), integer()) ::
+          {:ok, UserSentenceState.t()} | {:error, Ecto.Changeset.t()}
+  def mark_sentence_read(user_id, sentence_id) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    # Try to find existing state
+    case Repo.get_by(UserSentenceState, user_id: user_id, sentence_id: sentence_id) do
+      nil ->
+        # Create new state
+        %UserSentenceState{}
+        |> UserSentenceState.changeset(%{
+          user_id: user_id,
+          sentence_id: sentence_id,
+          status: "read",
+          read_at: now
+        })
+        |> Repo.insert()
+
+      %UserSentenceState{} = existing ->
+        # Update existing state
+        existing
+        |> UserSentenceState.changeset(%{
+          status: "read",
+          read_at: now
+        })
+        |> Repo.update()
+    end
   end
 end
