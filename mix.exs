@@ -38,6 +38,7 @@ defmodule Lex.MixProject do
       {:mint, "~> 1.0"},
       {:bupe, "~> 0.6"},
       {:sweet_xml, "~> 0.7"},
+      {:floki, "~> 0.34"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
       {:meck, "~> 0.9", only: :test}

@@ -115,4 +115,253 @@ defmodule Lex.Library.EPUBTest do
       File.rm!(temp_file)
     end
   end
+
+  describe "get_chapter_content/2" do
+    test "successfully extracts text from El Principito chapter" do
+      path = "test/fixtures/epubs/el_principito.epub"
+      assert {:ok, content} = EPUB.get_chapter_content(path, "chapter1.xhtml")
+
+      # Should contain the heading and paragraph text
+      assert content =~ "Chapter 1"
+      assert content =~ "Once upon a time"
+
+      # Should not contain HTML tags
+      refute content =~ "<h1>"
+      refute content =~ "<p>"
+      refute content =~ "</html>"
+    end
+
+    test "extracts text from multiple chapters" do
+      path = "test/fixtures/epubs/multi_chapter.epub"
+
+      # Test chapter 1
+      assert {:ok, ch1} = EPUB.get_chapter_content(path, "chapter1.xhtml")
+      assert ch1 =~ "Chapter 1"
+      assert ch1 =~ "Once upon a time"
+
+      # Test chapter 2
+      assert {:ok, ch2} = EPUB.get_chapter_content(path, "chapter2.xhtml")
+      assert ch2 =~ "Chapter 2"
+      assert ch2 =~ "The story continues"
+
+      # Test chapter 3
+      assert {:ok, ch3} = EPUB.get_chapter_content(path, "chapter3.xhtml")
+      assert ch3 =~ "Chapter 3"
+      assert ch3 =~ "The end"
+    end
+
+    test "preserves paragraph structure with newlines between block elements" do
+      path = "test/fixtures/epubs/multi_chapter.epub"
+      assert {:ok, content} = EPUB.get_chapter_content(path, "chapter1.xhtml")
+
+      # Block elements should be separated by newlines
+      assert content =~ "Chapter 1"
+      assert content =~ "Once upon a time"
+      # Verify structure is preserved (h1 and p are on separate lines)
+      assert content =~ "Chapter 1\n"
+    end
+
+    test "decodes HTML entities" do
+      # Create an EPUB with HTML entities
+      temp_dir =
+        Path.join(System.tmp_dir!(), "lex_entity_test_#{:erlang.unique_integer([:positive])}")
+
+      File.mkdir_p!(temp_dir)
+
+      build_dir = Path.join(temp_dir, "entity_test")
+      File.mkdir_p!(build_dir)
+
+      # Create mimetype
+      File.write!(Path.join(build_dir, "mimetype"), "application/epub+zip")
+
+      # Create META-INF/container.xml
+      meta_inf_dir = Path.join(build_dir, "META-INF")
+      File.mkdir_p!(meta_inf_dir)
+
+      container_xml = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+        <rootfiles>
+          <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+        </rootfiles>
+      </container>
+      """
+
+      File.write!(Path.join(meta_inf_dir, "container.xml"), container_xml)
+
+      # Create OEBPS directory
+      oebps_dir = Path.join(build_dir, "OEBPS")
+      File.mkdir_p!(oebps_dir)
+
+      # Create chapter with HTML entities
+      xhtml_content = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE html>
+      <html xmlns="http://www.w3.org/1999/xhtml">
+      <head><title>Test</title></head>
+      <body>
+        <p>AT&amp;T and 5 &lt; 10 &gt; 3 &quot;quoted&quot; &#39;apos&#39;</p>
+      </body>
+      </html>
+      """
+
+      File.write!(Path.join(oebps_dir, "chapter.xhtml"), xhtml_content)
+
+      # Create content.opf
+      opf = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid">
+        <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+          <dc:title>Entity Test</dc:title>
+          <dc:creator>Test</dc:creator>
+          <dc:language>en</dc:language>
+          <dc:identifier id="bookid">urn:uuid:test-entities</dc:identifier>
+        </metadata>
+        <manifest>
+          <item id="chapter1" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+        </manifest>
+        <spine>
+          <itemref idref="chapter1"/>
+        </spine>
+      </package>
+      """
+
+      File.write!(Path.join(oebps_dir, "content.opf"), opf)
+
+      # Create the EPUB
+      epub_path = Path.join(temp_dir, "entity_test.epub")
+
+      files = [
+        {~c"mimetype", File.read!(Path.join(build_dir, "mimetype"))},
+        {~c"META-INF/container.xml", File.read!(Path.join(meta_inf_dir, "container.xml"))},
+        {~c"OEBPS/content.opf", File.read!(Path.join(oebps_dir, "content.opf"))},
+        {~c"OEBPS/chapter.xhtml", File.read!(Path.join(oebps_dir, "chapter.xhtml"))}
+      ]
+
+      :zip.create(String.to_charlist(epub_path), files,
+        compress: [~c".xhtml", ~c".opf", ~c".xml"]
+      )
+
+      # Test entity decoding
+      assert {:ok, content} = EPUB.get_chapter_content(epub_path, "chapter.xhtml")
+      assert content =~ "AT&T"
+      assert content =~ "5 < 10 > 3"
+      assert content =~ "\"quoted\""
+      assert content =~ "'apos'"
+      refute content =~ "&amp;"
+      refute content =~ "&lt;"
+      refute content =~ "&gt;"
+
+      # Cleanup
+      File.rm_rf!(temp_dir)
+    end
+
+    test "returns error for non-existent file" do
+      assert {:error, :file_not_found} =
+               EPUB.get_chapter_content("/path/to/nonexistent.epub", "chapter.xhtml")
+    end
+
+    test "returns error for invalid EPUB file" do
+      temp_file =
+        Path.join(System.tmp_dir!(), "invalid_epub_#{:erlang.unique_integer([:positive])}.epub")
+
+      File.write!(temp_file, "not a valid epub")
+
+      assert {:error, :invalid_epub} = EPUB.get_chapter_content(temp_file, "chapter.xhtml")
+
+      File.rm!(temp_file)
+    end
+
+    test "returns error for non-existent chapter" do
+      path = "test/fixtures/epubs/el_principito.epub"
+      assert {:error, :chapter_not_found} = EPUB.get_chapter_content(path, "nonexistent.xhtml")
+    end
+
+    test "handles empty chapters gracefully" do
+      # Create an EPUB with an empty chapter
+      temp_dir =
+        Path.join(System.tmp_dir!(), "lex_empty_test_#{:erlang.unique_integer([:positive])}")
+
+      File.mkdir_p!(temp_dir)
+
+      build_dir = Path.join(temp_dir, "empty_test")
+      File.mkdir_p!(build_dir)
+
+      # Create mimetype
+      File.write!(Path.join(build_dir, "mimetype"), "application/epub+zip")
+
+      # Create META-INF/container.xml
+      meta_inf_dir = Path.join(build_dir, "META-INF")
+      File.mkdir_p!(meta_inf_dir)
+
+      container_xml = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+        <rootfiles>
+          <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+        </rootfiles>
+      </container>
+      """
+
+      File.write!(Path.join(meta_inf_dir, "container.xml"), container_xml)
+
+      # Create OEBPS directory
+      oebps_dir = Path.join(build_dir, "OEBPS")
+      File.mkdir_p!(oebps_dir)
+
+      # Create empty chapter (just HTML structure, no text content in body)
+      xhtml_content = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE html>
+      <html xmlns="http://www.w3.org/1999/xhtml">
+      <head><title></title></head>
+      <body>
+      </body>
+      </html>
+      """
+
+      File.write!(Path.join(oebps_dir, "empty.xhtml"), xhtml_content)
+
+      # Create content.opf
+      opf = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid">
+        <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+          <dc:title>Empty Test</dc:title>
+          <dc:creator>Test</dc:creator>
+          <dc:language>en</dc:language>
+          <dc:identifier id="bookid">urn:uuid:test-empty</dc:identifier>
+        </metadata>
+        <manifest>
+          <item id="chapter1" href="empty.xhtml" media-type="application/xhtml+xml"/>
+        </manifest>
+        <spine>
+          <itemref idref="chapter1"/>
+        </spine>
+      </package>
+      """
+
+      File.write!(Path.join(oebps_dir, "content.opf"), opf)
+
+      # Create the EPUB
+      epub_path = Path.join(temp_dir, "empty_test.epub")
+
+      files = [
+        {~c"mimetype", File.read!(Path.join(build_dir, "mimetype"))},
+        {~c"META-INF/container.xml", File.read!(Path.join(meta_inf_dir, "container.xml"))},
+        {~c"OEBPS/content.opf", File.read!(Path.join(oebps_dir, "content.opf"))},
+        {~c"OEBPS/empty.xhtml", File.read!(Path.join(oebps_dir, "empty.xhtml"))}
+      ]
+
+      :zip.create(String.to_charlist(epub_path), files,
+        compress: [~c".xhtml", ~c".opf", ~c".xml"]
+      )
+
+      # Test empty chapter handling
+      assert {:error, :empty_chapter} = EPUB.get_chapter_content(epub_path, "empty.xhtml")
+
+      # Cleanup
+      File.rm_rf!(temp_dir)
+    end
+  end
 end
