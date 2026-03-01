@@ -39,7 +39,8 @@ defmodule Lex.MixProject do
       {:bupe, "~> 0.6"},
       {:sweet_xml, "~> 0.7"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev], runtime: false}
+      {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
+      {:meck, "~> 0.9", only: :test}
     ]
   end
 

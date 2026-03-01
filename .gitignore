@@ -7,6 +7,7 @@
 /priv/static/cache_manifest.json
 
 # Database files
+/priv/local/
 /priv/repo/*.db
 /priv/repo/*.db-*
 *.db
