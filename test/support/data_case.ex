@@ -6,7 +6,16 @@ defmodule Lex.DataCase do
 
   use ExUnit.CaseTemplate
 
+  alias Ecto.Adapters.SQL.Sandbox
+
   setup do
+    # Start a database sandbox connection
+    pid = Sandbox.start_owner!(Lex.Repo, shared: true)
+
+    on_exit(fn ->
+      Sandbox.stop_owner(pid)
+    end)
+
     :ok
   end
 end
