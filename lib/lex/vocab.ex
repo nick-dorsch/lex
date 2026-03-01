@@ -82,4 +82,55 @@ defmodule Lex.Vocab do
         state
     end
   end
+
+  @doc """
+  Promotes all 'seen' lexemes in a sentence to 'known' status.
+
+  When user advances to the next sentence (j key pressed):
+  1. Gets all non-punctuation tokens in the sentence being left
+  2. For each token's lexeme with status="seen", updates to status="known"
+  3. Sets known_at timestamp for promoted lexemes
+  4. Lexemes with status="learning" or "known" remain unchanged
+
+  ## Examples
+
+      iex> promote_seen_to_known(user_id, sentence_id)
+      {:ok, 3}  # 3 lexemes were promoted
+
+      iex> promote_seen_to_known(invalid_user_id, sentence_id)
+      {:error, reason}
+  """
+  @spec promote_seen_to_known(integer(), integer()) ::
+          {:ok, non_neg_integer()} | {:error, any()}
+  def promote_seen_to_known(user_id, sentence_id) do
+    # Get all non-punctuation lexeme IDs for the sentence
+    lexeme_ids =
+      Token
+      |> where([t], t.sentence_id == ^sentence_id and t.is_punctuation == false)
+      |> select([t], t.lexeme_id)
+      |> distinct(true)
+      |> Repo.all()
+      |> Enum.reject(&is_nil/1)
+
+    if lexeme_ids == [] do
+      {:ok, 0}
+    else
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      # Update all 'seen' states to 'known' in a single query
+      {count, _} =
+        UserLexemeState
+        |> where([s], s.user_id == ^user_id and s.lexeme_id in ^lexeme_ids and s.status == "seen")
+        |> Repo.update_all(
+          set: [
+            status: "known",
+            known_at: now,
+            last_seen_at: now,
+            updated_at: now
+          ]
+        )
+
+      {:ok, count}
+    end
+  end
 end

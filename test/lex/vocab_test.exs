@@ -352,4 +352,235 @@ defmodule Lex.VocabTest do
       assert {:ok, []} = Vocab.mark_lexemes_seen(user.id, sentence.id)
     end
   end
+
+  describe "promote_seen_to_known/2" do
+    test "promotes seen words to known on sentence advance" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme1 = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      lexeme2 = create_lexeme(%{lemma: "mundo", normalized_lemma: "mundo"})
+
+      # Create tokens for the sentence
+      create_token(sentence.id, lexeme1.id, %{position: 1, surface: "hola"})
+      create_token(sentence.id, lexeme2.id, %{position: 2, surface: "mundo"})
+
+      # First mark lexemes as seen (simulating viewing the sentence)
+      assert {:ok, _} = Vocab.mark_lexemes_seen(user.id, sentence.id)
+
+      # Verify initial state
+      db_states = UserLexemeState |> where([s], s.user_id == ^user.id) |> Repo.all()
+      assert length(db_states) == 2
+      assert Enum.all?(db_states, fn s -> s.status == "seen" end)
+
+      # Now promote to known
+      assert {:ok, 2} = Vocab.promote_seen_to_known(user.id, sentence.id)
+
+      # Verify promoted state
+      db_states = UserLexemeState |> where([s], s.user_id == ^user.id) |> Repo.all()
+      assert length(db_states) == 2
+      assert Enum.all?(db_states, fn s -> s.status == "known" end)
+      assert Enum.all?(db_states, fn s -> s.known_at != nil end)
+    end
+
+    test "learning words remain unchanged" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme1 = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      lexeme2 = create_lexeme(%{lemma: "mundo", normalized_lemma: "mundo"})
+
+      create_token(sentence.id, lexeme1.id, %{position: 1, surface: "hola"})
+      create_token(sentence.id, lexeme2.id, %{position: 2, surface: "mundo"})
+
+      # Mark as seen first
+      assert {:ok, _} = Vocab.mark_lexemes_seen(user.id, sentence.id)
+
+      # Manually set one to learning
+      UserLexemeState
+      |> where([s], s.user_id == ^user.id and s.lexeme_id == ^lexeme1.id)
+      |> Repo.update_all(set: [status: "learning", learning_since: DateTime.utc_now()])
+
+      # Promote to known
+      assert {:ok, 1} = Vocab.promote_seen_to_known(user.id, sentence.id)
+
+      # Verify only the seen word was promoted
+      db_states = UserLexemeState |> where([s], s.user_id == ^user.id) |> Repo.all()
+      learning_state = Enum.find(db_states, fn s -> s.lexeme_id == lexeme1.id end)
+      known_state = Enum.find(db_states, fn s -> s.lexeme_id == lexeme2.id end)
+
+      assert learning_state.status == "learning"
+      assert known_state.status == "known"
+      assert known_state.known_at != nil
+    end
+
+    test "known words remain unchanged" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme1 = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      lexeme2 = create_lexeme(%{lemma: "mundo", normalized_lemma: "mundo"})
+
+      create_token(sentence.id, lexeme1.id, %{position: 1, surface: "hola"})
+      create_token(sentence.id, lexeme2.id, %{position: 2, surface: "mundo"})
+
+      # Mark as seen first
+      assert {:ok, _} = Vocab.mark_lexemes_seen(user.id, sentence.id)
+
+      # Manually set one to known
+      original_known_at = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      UserLexemeState
+      |> where([s], s.user_id == ^user.id and s.lexeme_id == ^lexeme1.id)
+      |> Repo.update_all(set: [status: "known", known_at: original_known_at])
+
+      # Wait a moment to ensure timestamps would differ
+      Process.sleep(1100)
+
+      # Promote to known
+      assert {:ok, 1} = Vocab.promote_seen_to_known(user.id, sentence.id)
+
+      # Verify only the seen word was promoted
+      db_states = UserLexemeState |> where([s], s.user_id == ^user.id) |> Repo.all()
+      already_known = Enum.find(db_states, fn s -> s.lexeme_id == lexeme1.id end)
+      newly_known = Enum.find(db_states, fn s -> s.lexeme_id == lexeme2.id end)
+
+      assert already_known.status == "known"
+      assert already_known.known_at == original_known_at
+      assert newly_known.status == "known"
+      assert newly_known.known_at != nil
+      assert DateTime.compare(newly_known.known_at, original_known_at) == :gt
+    end
+
+    test "punctuation is ignored" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme_word = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      lexeme_punct = create_lexeme(%{lemma: ".", normalized_lemma: ".", pos: "PUNCT"})
+
+      create_token(sentence.id, lexeme_word.id, %{position: 1, surface: "hola"})
+
+      create_token(sentence.id, lexeme_punct.id, %{
+        position: 2,
+        surface: ".",
+        is_punctuation: true
+      })
+
+      # Mark as seen
+      assert {:ok, _} = Vocab.mark_lexemes_seen(user.id, sentence.id)
+
+      # Promote
+      assert {:ok, 1} = Vocab.promote_seen_to_known(user.id, sentence.id)
+
+      # Verify only word was promoted
+      db_states = UserLexemeState |> where([s], s.user_id == ^user.id) |> Repo.all()
+      assert length(db_states) == 1
+      assert hd(db_states).status == "known"
+    end
+
+    test "returns count of promoted words" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme1 = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      lexeme2 = create_lexeme(%{lemma: "mundo", normalized_lemma: "mundo"})
+      lexeme3 = create_lexeme(%{lemma: "bien", normalized_lemma: "bien"})
+
+      create_token(sentence.id, lexeme1.id, %{position: 1, surface: "hola"})
+      create_token(sentence.id, lexeme2.id, %{position: 2, surface: "mundo"})
+      create_token(sentence.id, lexeme3.id, %{position: 3, surface: "bien"})
+
+      # Mark as seen
+      assert {:ok, _} = Vocab.mark_lexemes_seen(user.id, sentence.id)
+
+      # Set one to known
+      UserLexemeState
+      |> where([s], s.user_id == ^user.id and s.lexeme_id == ^lexeme1.id)
+      |> Repo.update_all(set: [status: "known"])
+
+      # Promote should return 2 (only seen words)
+      assert {:ok, 2} = Vocab.promote_seen_to_known(user.id, sentence.id)
+    end
+
+    test "empty sentence returns 0" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+
+      assert {:ok, 0} = Vocab.promote_seen_to_known(user.id, sentence.id)
+    end
+
+    test "sentence with only punctuation returns 0" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme_punct = create_lexeme(%{lemma: ".", normalized_lemma: ".", pos: "PUNCT"})
+
+      create_token(sentence.id, lexeme_punct.id, %{
+        position: 1,
+        surface: ".",
+        is_punctuation: true
+      })
+
+      assert {:ok, 0} = Vocab.promote_seen_to_known(user.id, sentence.id)
+    end
+
+    test "only affects specified user" do
+      user1 = create_user(%{email: "user1@example.com"})
+      user2 = create_user(%{email: "user2@example.com"})
+      document = create_document(user1.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+
+      create_token(sentence.id, lexeme.id, %{position: 1, surface: "hola"})
+
+      # Both users see the sentence
+      assert {:ok, _} = Vocab.mark_lexemes_seen(user1.id, sentence.id)
+      assert {:ok, _} = Vocab.mark_lexemes_seen(user2.id, sentence.id)
+
+      # Only promote for user1
+      assert {:ok, 1} = Vocab.promote_seen_to_known(user1.id, sentence.id)
+
+      # Verify user1's state is known
+      user1_state = UserLexemeState |> where([s], s.user_id == ^user1.id) |> Repo.one()
+      assert user1_state.status == "known"
+
+      # Verify user2's state is still seen
+      user2_state = UserLexemeState |> where([s], s.user_id == ^user2.id) |> Repo.one()
+      assert user2_state.status == "seen"
+    end
+
+    test "repeated lexemes in sentence handled correctly" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+
+      # Create multiple tokens with same lexeme
+      create_token(sentence.id, lexeme.id, %{position: 1, surface: "hola"})
+      create_token(sentence.id, lexeme.id, %{position: 2, surface: "hola"})
+      create_token(sentence.id, lexeme.id, %{position: 3, surface: "hola"})
+
+      # Mark as seen
+      assert {:ok, _} = Vocab.mark_lexemes_seen(user.id, sentence.id)
+
+      # Promote should return 1 (only one lexeme, despite multiple tokens)
+      assert {:ok, 1} = Vocab.promote_seen_to_known(user.id, sentence.id)
+
+      # Verify state
+      db_states = UserLexemeState |> where([s], s.user_id == ^user.id) |> Repo.all()
+      assert length(db_states) == 1
+      assert hd(db_states).status == "known"
+    end
+  end
 end
