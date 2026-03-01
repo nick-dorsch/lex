@@ -719,4 +719,194 @@ defmodule Lex.VocabTest do
       assert hd(db_states).status == "known"
     end
   end
+
+  describe "mark_learning/2" do
+    test "creates new learning state for new lexeme" do
+      user = create_user()
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+
+      assert {:ok, state} = Vocab.mark_learning(user.id, lexeme.id)
+      assert state.user_id == user.id
+      assert state.lexeme_id == lexeme.id
+      assert state.status == "learning"
+      assert state.learning_since != nil
+      assert state.seen_count == 1
+      assert state.first_seen_at != nil
+      assert state.last_seen_at != nil
+    end
+
+    test "promotes seen lexeme to learning" do
+      user = create_user()
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+
+      # Create a seen state first
+      {:ok, seen_state} =
+        %UserLexemeState{}
+        |> UserLexemeState.changeset(%{
+          user_id: user.id,
+          lexeme_id: lexeme.id,
+          status: "seen",
+          seen_count: 3,
+          first_seen_at: DateTime.utc_now() |> DateTime.truncate(:second),
+          last_seen_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        })
+        |> Repo.insert()
+
+      assert seen_state.status == "seen"
+      assert seen_state.learning_since == nil
+
+      # Mark as learning
+      assert {:ok, learning_state} = Vocab.mark_learning(user.id, lexeme.id)
+      assert learning_state.status == "learning"
+      assert learning_state.learning_since != nil
+      assert learning_state.seen_count == 4
+      assert learning_state.id == seen_state.id
+    end
+
+    test "does not change already learning lexeme" do
+      user = create_user()
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      learning_since = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      # Create a learning state
+      {:ok, original_state} =
+        %UserLexemeState{}
+        |> UserLexemeState.changeset(%{
+          user_id: user.id,
+          lexeme_id: lexeme.id,
+          status: "learning",
+          seen_count: 5,
+          learning_since: learning_since,
+          first_seen_at: DateTime.utc_now() |> DateTime.truncate(:second),
+          last_seen_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        })
+        |> Repo.insert()
+
+      # Mark as learning again
+      assert {:ok, state} = Vocab.mark_learning(user.id, lexeme.id)
+      assert state.status == "learning"
+      assert state.learning_since == learning_since
+      assert state.seen_count == 5
+      assert state.id == original_state.id
+    end
+
+    test "promotes known lexeme to learning" do
+      user = create_user()
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+
+      # Create a known state
+      {:ok, known_state} =
+        %UserLexemeState{}
+        |> UserLexemeState.changeset(%{
+          user_id: user.id,
+          lexeme_id: lexeme.id,
+          status: "known",
+          seen_count: 10,
+          known_at: DateTime.utc_now() |> DateTime.truncate(:second),
+          first_seen_at: DateTime.utc_now() |> DateTime.truncate(:second),
+          last_seen_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        })
+        |> Repo.insert()
+
+      assert known_state.status == "known"
+
+      # Mark as learning (should still work for known words)
+      assert {:ok, learning_state} = Vocab.mark_learning(user.id, lexeme.id)
+      assert learning_state.status == "learning"
+      assert learning_state.learning_since != nil
+      assert learning_state.seen_count == 11
+      assert learning_state.id == known_state.id
+    end
+
+    test "sets learning_since timestamp" do
+      user = create_user()
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+
+      before = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      assert {:ok, state} = Vocab.mark_learning(user.id, lexeme.id)
+
+      after_mark = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      assert state.learning_since != nil
+      assert DateTime.compare(state.learning_since, before) in [:gt, :eq]
+      assert DateTime.compare(state.learning_since, after_mark) in [:lt, :eq]
+    end
+  end
+
+  describe "log_llm_request/5" do
+    test "logs token-level LLM help request" do
+      user = create_user()
+      document = create_document(user.id, %{language: "es"})
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      token = create_token(sentence.id, lexeme.id, %{position: 1, surface: "hola"})
+
+      assert {:ok, request} =
+               Vocab.log_llm_request(user.id, document.id, sentence.id, token.id, :token)
+
+      assert request.user_id == user.id
+      assert request.document_id == document.id
+      assert request.sentence_id == sentence.id
+      assert request.token_id == token.id
+      assert request.request_type == "token"
+      assert request.response_language == "es"
+      assert request.provider == "openai"
+      assert request.model == "gpt-4"
+      assert request.inserted_at != nil
+    end
+
+    test "logs sentence-level LLM help request" do
+      user = create_user()
+      document = create_document(user.id, %{language: "fr"})
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+
+      assert {:ok, request} =
+               Vocab.log_llm_request(user.id, document.id, sentence.id, nil, :sentence)
+
+      assert request.user_id == user.id
+      assert request.document_id == document.id
+      assert request.sentence_id == sentence.id
+      assert request.token_id == nil
+      assert request.request_type == "sentence"
+      assert request.response_language == "fr"
+      assert request.provider == "openai"
+      assert request.model == "gpt-4"
+    end
+
+    test "uses document language for response_language" do
+      user = create_user()
+      document = create_document(user.id, %{language: "de"})
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+
+      assert {:ok, request} =
+               Vocab.log_llm_request(user.id, document.id, sentence.id, nil, :sentence)
+
+      assert request.response_language == "de"
+    end
+
+    test "returns error for invalid document_id" do
+      user = create_user()
+
+      assert {:error, %Ecto.Changeset{} = changeset} =
+               Vocab.log_llm_request(user.id, 999_999, 1, nil, :sentence)
+
+      assert changeset.errors[:document_id]
+    end
+
+    test "returns error for token-level request without token_id" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+
+      assert {:error, %Ecto.Changeset{} = changeset} =
+               Vocab.log_llm_request(user.id, document.id, sentence.id, nil, :token)
+
+      assert changeset.errors[:token_id]
+    end
+  end
 end

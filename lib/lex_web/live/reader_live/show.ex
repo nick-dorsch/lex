@@ -33,7 +33,8 @@ defmodule LexWeb.ReaderLive.Show do
            lexeme_states: lexeme_states,
            focused_token_id: nil,
            loading: false,
-           user_id: user_id
+           user_id: user_id,
+           help_requested: false
          )}
 
       {:error, :document_not_found} ->
@@ -107,11 +108,85 @@ defmodule LexWeb.ReaderLive.Show do
         {:noreply, socket}
 
       "space" ->
-        # LLM help request - stub for now
-        {:noreply, socket}
+        handle_llm_help(socket)
 
       _ ->
         {:noreply, socket}
+    end
+  end
+
+  # Handles LLM help request when spacebar is pressed
+  defp handle_llm_help(socket) do
+    user_id = socket.assigns.user_id
+    document = socket.assigns.document
+    sentence = socket.assigns.sentence
+
+    case socket.assigns.focused_token_id do
+      nil ->
+        # No focused token - request sentence-level help
+        case Vocab.log_llm_request(user_id, document.id, sentence.id, nil, :sentence) do
+          {:ok, _} ->
+            # Log the reading event
+            {:ok, _} =
+              Reader.log_event(user_id, :llm_help_requested, %{
+                document_id: document.id,
+                sentence_id: sentence.id,
+                request_type: :sentence
+              })
+
+            {:noreply, assign(socket, help_requested: true)}
+
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Failed to request help")}
+        end
+
+      token_id ->
+        # Focused token exists - mark as learning and request token-level help
+        token = Enum.find(socket.assigns.tokens, fn t -> t.id == token_id end)
+
+        case token && token.lexeme_id do
+          nil ->
+            {:noreply, socket}
+
+          lexeme_id ->
+            # Mark as learning
+            case Vocab.mark_learning(user_id, lexeme_id) do
+              {:ok, updated_state} ->
+                # Log LLM request
+                case Vocab.log_llm_request(
+                       user_id,
+                       document.id,
+                       sentence.id,
+                       token_id,
+                       :token
+                     ) do
+                  {:ok, _} ->
+                    # Log the reading event
+                    {:ok, _} =
+                      Reader.log_event(user_id, :llm_help_requested, %{
+                        document_id: document.id,
+                        sentence_id: sentence.id,
+                        token_id: token_id,
+                        lexeme_id: lexeme_id,
+                        request_type: :token
+                      })
+
+                    # Update lexeme_states in assigns
+                    new_states = Map.put(socket.assigns.lexeme_states, lexeme_id, updated_state)
+
+                    {:noreply,
+                     socket
+                     |> assign(lexeme_states: new_states)
+                     |> assign(help_requested: true)}
+
+                  {:error, _} ->
+                    {:noreply, put_flash(socket, :error, "Failed to request help")}
+                end
+
+              {:error, _} ->
+                {:noreply, put_flash(socket, :error, "Failed to mark word as learning")}
+            end
+        end
     end
   end
 

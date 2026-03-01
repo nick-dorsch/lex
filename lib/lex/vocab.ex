@@ -1,10 +1,11 @@
 defmodule Lex.Vocab do
   @moduledoc """
-  The Vocab context - User lexeme states.
+  The Vocab context - User lexeme states and LLM help requests.
   """
 
   alias Lex.Repo
   alias Lex.Vocab.UserLexemeState
+  alias Lex.Vocab.LlmHelpRequest
   alias Lex.Text.Token
 
   import Ecto.Query
@@ -166,6 +167,123 @@ defmodule Lex.Vocab do
         state
         |> UserLexemeState.changeset(attrs)
         |> Repo.update()
+    end
+  end
+
+  @doc """
+  Marks a lexeme as learning (directly, not a toggle).
+
+  When user requests LLM help for a token:
+  1. Gets the lexeme for the token
+  2. Sets status to "learning" regardless of current state
+  3. Updates learning_since timestamp
+
+  Unlike toggle_learning/2, this always sets to learning and never toggles back.
+
+  ## Examples
+
+      iex> mark_learning(user_id, lexeme_id)
+      {:ok, %UserLexemeState{status: "learning"}}
+
+      iex> mark_learning(user_id, lexeme_id_already_learning)
+      {:ok, %UserLexemeState{status: "learning"}}  # unchanged
+  """
+  @spec mark_learning(integer(), integer()) ::
+          {:ok, UserLexemeState.t()} | {:error, Ecto.Changeset.t()}
+  def mark_learning(user_id, lexeme_id) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    # Try to find existing state
+    existing_state =
+      UserLexemeState
+      |> where(user_id: ^user_id, lexeme_id: ^lexeme_id)
+      |> Repo.one()
+
+    case existing_state do
+      nil ->
+        # No state exists, create new "learning" state
+        %UserLexemeState{}
+        |> UserLexemeState.changeset(%{
+          user_id: user_id,
+          lexeme_id: lexeme_id,
+          status: "learning",
+          seen_count: 1,
+          first_seen_at: now,
+          last_seen_at: now,
+          learning_since: now
+        })
+        |> Repo.insert()
+
+      %UserLexemeState{status: "learning"} = state ->
+        # Already learning, no change needed
+        {:ok, state}
+
+      state ->
+        # Update to learning
+        attrs = %{
+          status: "learning",
+          learning_since: now,
+          seen_count: state.seen_count + 1,
+          last_seen_at: now
+        }
+
+        attrs =
+          if is_nil(state.first_seen_at) do
+            Map.put(attrs, :first_seen_at, now)
+          else
+            attrs
+          end
+
+        state
+        |> UserLexemeState.changeset(attrs)
+        |> Repo.update()
+    end
+  end
+
+  @doc """
+  Logs an LLM help request.
+
+  Creates a record in the llm_help_requests table with provider and model
+  from configuration. This is called when the user requests LLM help.
+
+  ## Examples
+
+      iex> log_llm_request(user_id, document_id, sentence_id, token_id, :token)
+      {:ok, %LlmHelpRequest{}}
+
+      iex> log_llm_request(user_id, document_id, sentence_id, nil, :sentence)
+      {:ok, %LlmHelpRequest{}}
+  """
+  @spec log_llm_request(integer(), integer(), integer(), integer() | nil, :token | :sentence) ::
+          {:ok, LlmHelpRequest.t()} | {:error, Ecto.Changeset.t()}
+  def log_llm_request(user_id, document_id, sentence_id, token_id, request_type) do
+    # Verify document exists
+    document = Repo.get(Lex.Library.Document, document_id)
+
+    if is_nil(document) do
+      {:error,
+       %LlmHelpRequest{}
+       |> LlmHelpRequest.changeset(%{document_id: document_id})
+       |> Ecto.Changeset.add_error(:document_id, "does not exist")}
+    else
+      # Get provider and model from config, with defaults
+      provider = Application.get_env(:lex, :llm_provider, "openai")
+      model = Application.get_env(:lex, :llm_model, "gpt-4")
+
+      attrs = %{
+        user_id: user_id,
+        document_id: document_id,
+        sentence_id: sentence_id,
+        token_id: token_id,
+        request_type: Atom.to_string(request_type),
+        response_language: document.language,
+        provider: provider,
+        model: model
+      }
+
+      %LlmHelpRequest{}
+      |> LlmHelpRequest.changeset(attrs)
+      |> Repo.insert()
     end
   end
 

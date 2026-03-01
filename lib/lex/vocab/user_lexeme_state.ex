@@ -2,6 +2,20 @@ defmodule Lex.Vocab.UserLexemeState do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t :: %__MODULE__{
+          id: integer() | nil,
+          status: String.t(),
+          seen_count: integer(),
+          first_seen_at: DateTime.t() | nil,
+          last_seen_at: DateTime.t() | nil,
+          known_at: DateTime.t() | nil,
+          learning_since: DateTime.t() | nil,
+          user_id: integer(),
+          lexeme_id: integer(),
+          inserted_at: DateTime.t() | nil,
+          updated_at: DateTime.t() | nil
+        }
+
   schema "user_lexeme_states" do
     field(:status, :string)
     field(:seen_count, :integer, default: 0)

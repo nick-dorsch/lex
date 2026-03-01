@@ -4,6 +4,23 @@ defmodule Lex.Vocab.LlmHelpRequest do
 
   @valid_request_types ["sentence", "token"]
 
+  @type t :: %__MODULE__{
+          id: integer() | nil,
+          request_type: String.t(),
+          response_language: String.t(),
+          provider: String.t(),
+          model: String.t(),
+          latency_ms: integer() | nil,
+          prompt_tokens: integer() | nil,
+          completion_tokens: integer() | nil,
+          response_text: String.t() | nil,
+          user_id: integer(),
+          document_id: integer(),
+          sentence_id: integer(),
+          token_id: integer() | nil,
+          inserted_at: DateTime.t() | nil
+        }
+
   schema "llm_help_requests" do
     field(:request_type, :string)
     field(:response_language, :string)
