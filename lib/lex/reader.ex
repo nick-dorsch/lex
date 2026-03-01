@@ -5,6 +5,7 @@ defmodule Lex.Reader do
 
   alias Lex.Repo
   alias Lex.Reader.ReadingPosition
+  alias Lex.Reader.ReadingEvent
   alias Lex.Reader.UserSentenceState
   alias Lex.Library.Document
   alias Lex.Library.Section
@@ -196,5 +197,74 @@ defmodule Lex.Reader do
         })
         |> Repo.update()
     end
+  end
+
+  @doc """
+  Logs a reading event for analytics.
+
+  Creates a reading event record with the given user_id, event_type, and metadata.
+  Event types are atoms that get converted to strings. The metadata map is
+  serialized to JSON for flexible storage.
+
+  ## Event Types
+
+  - :enter_sentence - User views a sentence (on mount/navigate)
+  - :advance_sentence - User presses j to advance
+  - :skip_range - User skips section
+  - :mark_learning - User marks word learning
+  - :unmark_learning - User unmarks learning
+  - :llm_help_requested - User presses space for help
+
+  ## Examples
+
+      iex> log_event(user_id, :advance_sentence, %{
+      ...>   document_id: 1,
+      ...>   from_sentence_id: 5,
+      ...>   to_sentence_id: 6
+      ...> })
+      {:ok, %ReadingEvent{}}
+
+      iex> log_event(user_id, :mark_learning, %{
+      ...>   document_id: 1,
+      ...>   sentence_id: 5,
+      ...>   token_id: 12,
+      ...>   lexeme_id: 34
+      ...> })
+      {:ok, %ReadingEvent{}}
+  """
+  @spec log_event(integer(), atom(), map()) ::
+          {:ok, ReadingEvent.t()} | {:error, Ecto.Changeset.t()}
+  def log_event(user_id, event_type, metadata \\ %{}) when is_atom(event_type) do
+    event_type_str = Atom.to_string(event_type)
+    payload = ReadingEvent.encode_payload(metadata)
+
+    attrs = %{
+      user_id: user_id,
+      event_type: event_type_str,
+      payload: payload
+    }
+
+    # Extract optional foreign key references from metadata
+    attrs =
+      case metadata do
+        %{document_id: doc_id} -> Map.put(attrs, :document_id, doc_id)
+        _ -> attrs
+      end
+
+    attrs =
+      case metadata do
+        %{sentence_id: sent_id} -> Map.put(attrs, :sentence_id, sent_id)
+        _ -> attrs
+      end
+
+    attrs =
+      case metadata do
+        %{token_id: tok_id} -> Map.put(attrs, :token_id, tok_id)
+        _ -> attrs
+      end
+
+    %ReadingEvent{}
+    |> ReadingEvent.changeset(attrs)
+    |> Repo.insert()
   end
 end

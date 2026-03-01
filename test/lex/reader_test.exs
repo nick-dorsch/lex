@@ -3,6 +3,7 @@ defmodule Lex.ReaderTest do
 
   alias Lex.Reader
   alias Lex.Reader.ReadingPosition
+  alias Lex.Reader.ReadingEvent
   alias Lex.Reader.UserSentenceState
   alias Lex.Repo
 
@@ -67,6 +68,23 @@ defmodule Lex.ReaderTest do
       char_start: 0,
       char_end: String.length(text),
       section_id: section_id
+    })
+    |> Repo.insert!()
+  end
+
+  # Helper function to create a token
+  defp create_token(sentence_id, position, surface \\ "test") do
+    %Lex.Text.Token{}
+    |> Lex.Text.Token.changeset(%{
+      position: position,
+      surface: surface,
+      normalized_surface: String.downcase(surface),
+      lemma: String.downcase(surface),
+      pos: "NOUN",
+      is_punctuation: false,
+      char_start: 0,
+      char_end: String.length(surface),
+      sentence_id: sentence_id
     })
     |> Repo.insert!()
   end
@@ -305,6 +323,190 @@ defmodule Lex.ReaderTest do
         |> Repo.aggregate(:count)
 
       assert count == 1
+    end
+  end
+
+  describe "log_event/3" do
+    test "logs enter_sentence event" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+
+      assert {:ok, event} =
+               Reader.log_event(user.id, :enter_sentence, %{
+                 document_id: document.id,
+                 sentence_id: sentence.id
+               })
+
+      assert event.user_id == user.id
+      assert event.document_id == document.id
+      assert event.sentence_id == sentence.id
+      assert event.event_type == "enter_sentence"
+      assert event.inserted_at != nil
+    end
+
+    test "logs advance_sentence event with navigation metadata" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence1 = create_sentence(section.id, 1)
+      sentence2 = create_sentence(section.id, 2)
+
+      assert {:ok, event} =
+               Reader.log_event(user.id, :advance_sentence, %{
+                 document_id: document.id,
+                 from_sentence_id: sentence1.id,
+                 to_sentence_id: sentence2.id
+               })
+
+      assert event.user_id == user.id
+      assert event.event_type == "advance_sentence"
+      decoded_payload = ReadingEvent.decode_payload(event)
+      assert decoded_payload["from_sentence_id"] == sentence1.id
+      assert decoded_payload["to_sentence_id"] == sentence2.id
+    end
+
+    test "logs skip_range event" do
+      user = create_user()
+      document = create_document(user.id)
+      section1 = create_section(document.id, 1)
+      section2 = create_section(document.id, 2)
+
+      assert {:ok, event} =
+               Reader.log_event(user.id, :skip_range, %{
+                 document_id: document.id,
+                 from_section_id: section1.id,
+                 to_section_id: section2.id,
+                 skipped_sentences: 10
+               })
+
+      assert event.event_type == "skip_range"
+      decoded_payload = ReadingEvent.decode_payload(event)
+      assert decoded_payload["skipped_sentences"] == 10
+    end
+
+    test "logs mark_learning event with token reference" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      token = create_token(sentence.id, 1)
+
+      assert {:ok, event} =
+               Reader.log_event(user.id, :mark_learning, %{
+                 document_id: document.id,
+                 sentence_id: sentence.id,
+                 token_id: token.id,
+                 lexeme_id: 123
+               })
+
+      assert event.event_type == "mark_learning"
+      assert event.token_id == token.id
+      decoded_payload = ReadingEvent.decode_payload(event)
+      assert decoded_payload["lexeme_id"] == 123
+    end
+
+    test "logs unmark_learning event" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      token = create_token(sentence.id, 1)
+
+      assert {:ok, event} =
+               Reader.log_event(user.id, :unmark_learning, %{
+                 document_id: document.id,
+                 sentence_id: sentence.id,
+                 token_id: token.id
+               })
+
+      assert event.event_type == "unmark_learning"
+      assert event.token_id == token.id
+    end
+
+    test "logs llm_help_requested event" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      token = create_token(sentence.id, 1)
+
+      assert {:ok, event} =
+               Reader.log_event(user.id, :llm_help_requested, %{
+                 document_id: document.id,
+                 sentence_id: sentence.id,
+                 token_id: token.id
+               })
+
+      assert event.event_type == "llm_help_requested"
+      assert event.token_id == token.id
+    end
+
+    test "metadata is properly serialized to JSON" do
+      user = create_user()
+      document = create_document(user.id)
+
+      metadata = %{
+        document_id: document.id,
+        custom_field: "custom_value",
+        nested: %{key: "value"},
+        list: [1, 2, 3]
+      }
+
+      assert {:ok, event} = Reader.log_event(user.id, :enter_sentence, metadata)
+
+      decoded = ReadingEvent.decode_payload(event)
+      assert decoded["custom_field"] == "custom_value"
+      assert decoded["nested"]["key"] == "value"
+      assert decoded["list"] == [1, 2, 3]
+    end
+
+    test "event has correct user_id and timestamp" do
+      user = create_user()
+      document = create_document(user.id)
+
+      assert {:ok, event} =
+               Reader.log_event(user.id, :enter_sentence, %{document_id: document.id})
+
+      assert event.user_id == user.id
+      assert event.inserted_at != nil
+
+      # Verify timestamp is set and is a valid datetime
+      inserted_at = DateTime.from_naive!(event.inserted_at, "Etc/UTC")
+      assert %DateTime{} = inserted_at
+    end
+
+    test "returns error for invalid event type" do
+      user = create_user()
+      document = create_document(user.id)
+
+      # Invalid event type should fail validation
+      assert {:error, %Ecto.Changeset{} = changeset} =
+               Reader.log_event(user.id, :invalid_event_type, %{document_id: document.id})
+
+      assert changeset.errors[:event_type]
+    end
+
+    test "returns error when required fields missing" do
+      user = create_user()
+
+      # Missing document_id should fail validation
+      assert {:error, %Ecto.Changeset{} = changeset} =
+               Reader.log_event(user.id, :enter_sentence, %{document_id: nil})
+
+      assert changeset.errors[:document_id]
+    end
+
+    test "empty metadata is allowed" do
+      user = create_user()
+      document = create_document(user.id)
+
+      assert {:ok, event} =
+               Reader.log_event(user.id, :enter_sentence, %{document_id: document.id})
+
+      decoded = ReadingEvent.decode_payload(event)
+      assert decoded == %{"document_id" => document.id}
     end
   end
 end
