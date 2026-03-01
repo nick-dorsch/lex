@@ -1,4 +1,4 @@
-<div class="reader-container">
+<div class="reader-container" phx-window-keydown="keydown">
   <%= if @loading do %>
     <div class="reader-loading">
       <p>Loading...</p>
@@ -12,7 +12,44 @@
 
     <%= if @sentence do %>
       <div class="sentence-display">
-        <p class="sentence-text"><%= @sentence.text %></p>
+        <div class="tokens-container">
+          <%= for token <- @tokens do %>
+            <% lexeme_state = Map.get(@lexeme_states, token.lexeme_id)
+               is_focused = @focused_token_id == token.id
+               is_learning = lexeme_state && lexeme_state.status == "learning"
+               token_class = cond do
+                 is_learning -> "token learning"
+                 is_focused -> "token focused"
+                 true -> "token"
+               end
+            %>
+            <span
+              class={token_class}
+              phx-click="focus_token"
+              phx-value-token_id={token.id}
+            >
+              <%= token.surface %>
+            </span>
+          <% end %>
+        </div>
+      </div>
+
+      <div class="reader-controls">
+        <%= if @focused_token_id do %>
+          <% focused_token = Enum.find(@tokens, fn t -> t.id == @focused_token_id end)
+             focused_lexeme_state = focused_token && Map.get(@lexeme_states, focused_token.lexeme_id)
+             is_learning = focused_lexeme_state && focused_lexeme_state.status == "learning"
+          %>
+          <button
+            class={if is_learning, do: "btn-learning-active", else: "btn-learning"}
+            phx-click="toggle_learning"
+          >
+            <%= if is_learning, do: "Unmark Learning", else: "Mark Learning" %>
+          </button>
+          <span class="keyboard-hint">(or press 'l')</span>
+        <% else %>
+          <p class="hint">Click a word to mark it as learning</p>
+        <% end %>
       </div>
     <% else %>
       <div class="empty-state">

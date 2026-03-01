@@ -353,6 +353,142 @@ defmodule Lex.VocabTest do
     end
   end
 
+  describe "toggle_learning/2" do
+    test "toggles from new (no state) to learning" do
+      user = create_user()
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+
+      assert {:ok, state} = Vocab.toggle_learning(user.id, lexeme.id)
+      assert state.status == "learning"
+      assert state.learning_since != nil
+      assert state.seen_count == 1
+      assert state.first_seen_at != nil
+      assert state.last_seen_at != nil
+    end
+
+    test "toggles from seen to learning" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+
+      create_token(sentence.id, lexeme.id, %{position: 1, surface: "hola"})
+
+      # First mark as seen
+      assert {:ok, _} = Vocab.mark_lexemes_seen(user.id, sentence.id)
+
+      # Get the state
+      seen_state = UserLexemeState |> where([s], s.user_id == ^user.id) |> Repo.one()
+      assert seen_state.status == "seen"
+      assert seen_state.learning_since == nil
+
+      # Toggle to learning
+      assert {:ok, learning_state} = Vocab.toggle_learning(user.id, lexeme.id)
+      assert learning_state.status == "learning"
+      assert learning_state.learning_since != nil
+      # Incremented
+      assert learning_state.seen_count == 2
+    end
+
+    test "toggles from learning back to seen" do
+      user = create_user()
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+
+      # Create a learning state
+      {:ok, learning_state} =
+        %UserLexemeState{}
+        |> UserLexemeState.changeset(%{
+          user_id: user.id,
+          lexeme_id: lexeme.id,
+          status: "learning",
+          seen_count: 5,
+          learning_since: DateTime.utc_now() |> DateTime.truncate(:second),
+          first_seen_at: DateTime.utc_now() |> DateTime.truncate(:second),
+          last_seen_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        })
+        |> Repo.insert()
+
+      assert learning_state.status == "learning"
+
+      # Toggle back to seen
+      assert {:ok, seen_state} = Vocab.toggle_learning(user.id, lexeme.id)
+      assert seen_state.status == "seen"
+      assert seen_state.learning_since == nil
+      # Incremented
+      assert seen_state.seen_count == 6
+    end
+
+    test "known words are not affected" do
+      user = create_user()
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+
+      # Create a known state
+      known_at = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      {:ok, known_state} =
+        %UserLexemeState{}
+        |> UserLexemeState.changeset(%{
+          user_id: user.id,
+          lexeme_id: lexeme.id,
+          status: "known",
+          seen_count: 10,
+          known_at: known_at,
+          first_seen_at: known_at,
+          last_seen_at: known_at
+        })
+        |> Repo.insert()
+
+      assert known_state.status == "known"
+
+      # Toggle should not change known words
+      assert {:ok, unchanged_state} = Vocab.toggle_learning(user.id, lexeme.id)
+      assert unchanged_state.status == "known"
+      assert unchanged_state.known_at == known_at
+      # Not incremented
+      assert unchanged_state.seen_count == 10
+    end
+
+    test "sets learning_since timestamp when toggling to learning" do
+      user = create_user()
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+
+      before_toggle = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      assert {:ok, state} = Vocab.toggle_learning(user.id, lexeme.id)
+
+      after_toggle = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      assert state.status == "learning"
+      assert state.learning_since != nil
+      assert DateTime.compare(state.learning_since, before_toggle) in [:gt, :eq]
+      assert DateTime.compare(state.learning_since, after_toggle) in [:lt, :eq]
+    end
+
+    test "clears learning_since when toggling from learning to seen" do
+      user = create_user()
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+
+      # Create a learning state
+      {:ok, _} =
+        %UserLexemeState{}
+        |> UserLexemeState.changeset(%{
+          user_id: user.id,
+          lexeme_id: lexeme.id,
+          status: "learning",
+          seen_count: 5,
+          learning_since: DateTime.utc_now() |> DateTime.truncate(:second),
+          first_seen_at: DateTime.utc_now() |> DateTime.truncate(:second),
+          last_seen_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        })
+        |> Repo.insert()
+
+      assert {:ok, state} = Vocab.toggle_learning(user.id, lexeme.id)
+      assert state.status == "seen"
+      assert state.learning_since == nil
+    end
+  end
+
   describe "promote_seen_to_known/2" do
     test "promotes seen words to known on sentence advance" do
       user = create_user()

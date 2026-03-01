@@ -84,6 +84,92 @@ defmodule Lex.Vocab do
   end
 
   @doc """
+  Toggles the learning state for a lexeme.
+
+  When user triggers "toggle learning":
+  1. Gets lexeme for focused token
+  2. Checks current state:
+     - If no state or `seen`: create/update to `learning`, set `learning_since`
+     - If `learning`: revert to `seen` (not `known`)
+     - If `known`: do nothing
+
+  ## Examples
+
+      iex> toggle_learning(user_id, lexeme_id)
+      {:ok, %UserLexemeState{status: "learning"}}
+
+      iex> toggle_learning(user_id, lexeme_id_already_learning)
+      {:ok, %UserLexemeState{status: "seen"}}
+
+      iex> toggle_learning(user_id, lexeme_id_known)
+      {:ok, %UserLexemeState{status: "known"}}  # unchanged
+  """
+  @spec toggle_learning(integer(), integer()) ::
+          {:ok, UserLexemeState.t()} | {:error, Ecto.Changeset.t()}
+  def toggle_learning(user_id, lexeme_id) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    # Try to find existing state
+    existing_state =
+      UserLexemeState
+      |> where(user_id: ^user_id, lexeme_id: ^lexeme_id)
+      |> Repo.one()
+
+    case existing_state do
+      nil ->
+        # No state exists, create new "learning" state
+        %UserLexemeState{}
+        |> UserLexemeState.changeset(%{
+          user_id: user_id,
+          lexeme_id: lexeme_id,
+          status: "learning",
+          seen_count: 1,
+          first_seen_at: now,
+          last_seen_at: now,
+          learning_since: now
+        })
+        |> Repo.insert()
+
+      %{status: "known"} = state ->
+        # Known words are not affected
+        {:ok, state}
+
+      %{status: "learning"} = state ->
+        # Revert from learning to seen
+        attrs = %{
+          status: "seen",
+          learning_since: nil,
+          seen_count: state.seen_count + 1,
+          last_seen_at: now
+        }
+
+        state
+        |> UserLexemeState.changeset(attrs)
+        |> Repo.update()
+
+      state when state.status in ["seen", nil] ->
+        # Promote to learning
+        attrs = %{
+          status: "learning",
+          learning_since: now,
+          seen_count: state.seen_count + 1,
+          last_seen_at: now
+        }
+
+        attrs =
+          if is_nil(state.first_seen_at) do
+            Map.put(attrs, :first_seen_at, now)
+          else
+            attrs
+          end
+
+        state
+        |> UserLexemeState.changeset(attrs)
+        |> Repo.update()
+    end
+  end
+
+  @doc """
   Promotes all 'seen' lexemes in a sentence to 'known' status.
 
   When user advances to the next sentence (j key pressed):
