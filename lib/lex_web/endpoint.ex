@@ -1,5 +1,10 @@
 defmodule LexWeb.Endpoint do
-  use Phoenix.Endpoint, otp_app: :lex
+  use Phoenix.Endpoint,
+    otp_app: :lex,
+    render_errors: [
+      formats: [html: LexWeb.ErrorHTML],
+      layout: false
+    ]
 
   @session_options [
     store: :cookie,

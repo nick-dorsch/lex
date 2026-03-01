@@ -17,7 +17,8 @@ defmodule LexWeb.Router do
   scope "/", LexWeb do
     pipe_through(:browser)
 
-    # LiveView routes will be added here
+    live("/library", LibraryLive.Index)
+    live("/read/:document_id", ReaderLive.Show)
   end
 
   scope "/api", LexWeb do

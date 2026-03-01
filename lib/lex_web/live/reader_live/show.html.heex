@@ -1,0 +1,23 @@
+<div class="reader-container">
+  <%= if @loading do %>
+    <div class="reader-loading">
+      <p>Loading...</p>
+    </div>
+  <% else %>
+    <%= if @section do %>
+      <div class="section-breadcrumb">
+        <span class="section-title"><%= @section.title || "Untitled Section" %></span>
+      </div>
+    <% end %>
+
+    <%= if @sentence do %>
+      <div class="sentence-display">
+        <p class="sentence-text"><%= @sentence.text %></p>
+      </div>
+    <% else %>
+      <div class="empty-state">
+        <p>No content available for this document.</p>
+      </div>
+    <% end %>
+  <% end %>
+</div>

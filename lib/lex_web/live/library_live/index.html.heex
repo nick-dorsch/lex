@@ -1,0 +1,30 @@
+<div class="library-container">
+  <h1>My Library</h1>
+
+  <%= if Enum.empty?(@documents) do %>
+    <div class="empty-state">
+      <p>No documents ready for reading.</p>
+      <p>Upload a document to get started!</p>
+    </div>
+  <% else %>
+    <div class="document-grid">
+      <%= for document <- @documents do %>
+        <div class="document-card" phx-click="navigate_to_reader" phx-value-document_id={document.id}>
+          <div class="document-info">
+            <h3 class="document-title"><%= document.title %></h3>
+            <%= if document.author do %>
+              <p class="document-author">by <%= document.author %></p>
+            <% end %>
+          </div>
+          
+          <div class="progress-container">
+            <div class="progress-bar">
+              <div class="progress-fill" style={"width: #{document.progress}%"}></div>
+            </div>
+            <span class="progress-text"><%= document.progress %>%</span>
+          </div>
+        </div>
+      <% end %>
+    </div>
+  <% end %>
+</div>
