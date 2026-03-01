@@ -1,4 +1,4 @@
-<div class="reader-container" phx-window-keydown="keydown">
+<div class="reader-container" phx-hook="KeyboardNav" id="reader-container">
   <%= if @loading do %>
     <div class="reader-loading">
       <p>Loading...</p>

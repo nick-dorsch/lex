@@ -87,6 +87,34 @@ defmodule LexWeb.ReaderLive.Show do
     {:noreply, socket}
   end
 
+  @impl true
+  def handle_event("key_nav", %{"key" => key}, socket) do
+    case key do
+      "j" ->
+        # Next sentence - stub for now
+        {:noreply, socket}
+
+      "k" ->
+        # Previous sentence - stub for now
+        {:noreply, socket}
+
+      "w" ->
+        # Next token - stub for now
+        {:noreply, socket}
+
+      "b" ->
+        # Previous token - stub for now
+        {:noreply, socket}
+
+      "space" ->
+        # LLM help request - stub for now
+        {:noreply, socket}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
   defp load_reader_data(user_id, document_id) do
     with {:ok, position} <- Reader.get_or_create_position(user_id, document_id),
          document when not is_nil(document) <- Repo.get(Document, document_id) do
