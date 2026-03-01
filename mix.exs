@@ -36,6 +36,8 @@ defmodule Lex.MixProject do
       {:telemetry_poller, "~> 1.0"},
       {:tesla, "~> 1.7"},
       {:mint, "~> 1.0"},
+      {:bupe, "~> 0.6"},
+      {:sweet_xml, "~> 0.7"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false}
     ]
