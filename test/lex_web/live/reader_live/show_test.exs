@@ -113,29 +113,40 @@ defmodule LexWeb.ReaderLive.ShowTest do
   end
 
   describe "llm_help" do
-    test "pressing space with focused token shows popup and starts loading", %{conn: conn} do
+    test "pressing space with focused token shows popup and streams response", %{conn: conn} do
       user = create_user()
       document = create_ready_document(user)
       section = create_section(document)
       sentence = create_sentence(section, 1, "This is a test.")
       _tokens = create_tokens_for_sentence(sentence, ["This", "is", "a", "test", "."])
 
-      # Set up mock response
-      Lex.LLM.ClientMock.set_mock_response("This is the help response.")
+      # Set up mock to return chunks
+      chunks = ["This ", "is ", "the ", "help ", "response."]
+      Lex.LLM.ClientMock.set_mock_chunks(chunks)
+      Lex.LLM.ClientMock.set_chunk_delay(0)
 
       {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
       # Focus the token (index 4 for "test")
-      _html = render_hook(view, "key_nav", %{"key" => "w"})
-      _html = render_hook(view, "key_nav", %{"key" => "w"})
-      _html = render_hook(view, "key_nav", %{"key" => "w"})
-      _html = render_hook(view, "key_nav", %{"key" => "w"})
+      for _ <- 1..4 do
+        _html = render_hook(view, "key_nav", %{"key" => "w"})
+      end
 
       # Press space to request help
       _html = render_hook(view, "key_nav", %{"key" => "space"})
 
-      # Verify popup is visible and loading
+      # Verify popup is visible
       assert view |> has_element?("[data-testid=\"llm-popup\"]")
+
+      # Wait for streaming to complete (chunks are processed asynchronously)
+      Process.sleep(500)
+
+      # Verify final response is displayed
+      popup_html = view |> element("[data-testid=\"llm-popup\"]") |> render()
+      assert popup_html =~ "This is the help response."
+
+      # Verify loading state is gone
+      refute popup_html =~ "Thinking..."
 
       # Clean up
       Lex.LLM.ClientMock.clear_mock()
@@ -163,11 +174,14 @@ defmodule LexWeb.ReaderLive.ShowTest do
       # Press space again to hide popup
       _html = render_hook(view, "key_nav", %{"key" => "space"})
 
+      # Verify popup is hidden
+      refute view |> has_element?("[data-testid=\"llm-popup\"]")
+
       # Clean up
       Lex.LLM.ClientMock.clear_mock()
     end
 
-    test "cached response is returned immediately", %{conn: conn} do
+    test "cached response returned immediately without LLM call", %{conn: conn} do
       user = create_user()
       document = create_ready_document(user)
       section = create_section(document)
@@ -193,16 +207,20 @@ defmodule LexWeb.ReaderLive.ShowTest do
       {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
       # Focus the token
-      _html = render_hook(view, "key_nav", %{"key" => "w"})
-      _html = render_hook(view, "key_nav", %{"key" => "w"})
-      _html = render_hook(view, "key_nav", %{"key" => "w"})
-      _html = render_hook(view, "key_nav", %{"key" => "w"})
+      for _ <- 1..4 do
+        _html = render_hook(view, "key_nav", %{"key" => "w"})
+      end
 
       # Press space to request help
       _html = render_hook(view, "key_nav", %{"key" => "space"})
 
-      # Should show popup immediately (no loading state needed for cached)
+      # Should show popup immediately
       assert view |> has_element?("[data-testid=\"llm-popup\"]")
+
+      # Should show cached response immediately (no loading state)
+      popup_html = view |> element("[data-testid=\"llm-popup\"]") |> render()
+      assert popup_html =~ "Cached help response"
+      refute popup_html =~ "Thinking..."
     end
 
     test "LLM error shows error message", %{conn: conn} do
@@ -218,16 +236,198 @@ defmodule LexWeb.ReaderLive.ShowTest do
       {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
       # Focus a token
-      _html = render_hook(view, "key_nav", %{"key" => "w"})
-      _html = render_hook(view, "key_nav", %{"key" => "w"})
-      _html = render_hook(view, "key_nav", %{"key" => "w"})
-      _html = render_hook(view, "key_nav", %{"key" => "w"})
+      for _ <- 1..4 do
+        _html = render_hook(view, "key_nav", %{"key" => "w"})
+      end
 
       # Press space to request help
       _html = render_hook(view, "key_nav", %{"key" => "space"})
 
       # Should show popup
       assert view |> has_element?("[data-testid=\"llm-popup\"]")
+
+      # Wait for error to be processed
+      Process.sleep(300)
+
+      # Wait for error to be processed
+      Process.sleep(500)
+
+      # Should show error message (using the class name)
+      popup_html = view |> element("[data-testid=\"llm-popup\"]") |> render()
+      assert popup_html =~ "class=\"llm-popup-error\""
+
+      # Clean up
+      Lex.LLM.ClientMock.clear_mock()
+    end
+
+    test "streaming chunks appear progressively in popup", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "Hello world.")
+      _tokens = create_tokens_for_sentence(sentence, ["Hello", "world", "."])
+
+      # Set up chunks that will arrive one at a time
+      chunks = ["First ", "chunk ", "appears.", " Then ", "second."]
+      Lex.LLM.ClientMock.set_mock_chunks(chunks)
+      Lex.LLM.ClientMock.set_chunk_delay(0)
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Focus a token
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+
+      # Request help
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+
+      # Verify popup is visible
+      assert view |> has_element?("[data-testid=\"llm-popup\"]")
+
+      # Wait for streaming to complete
+      Process.sleep(500)
+
+      # Verify all chunks are displayed
+      popup_html = view |> element("[data-testid=\"llm-popup\"]") |> render()
+      assert popup_html =~ "First chunk appears. Then second."
+
+      # Clean up
+      Lex.LLM.ClientMock.clear_mock()
+    end
+
+    test "final response is displayed after streaming completes", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "Hello world.")
+      _tokens = create_tokens_for_sentence(sentence, ["Hello", "world", "."])
+
+      # Set up a complete response
+      Lex.LLM.ClientMock.set_mock_response("This is the complete help response for testing.")
+      Lex.LLM.ClientMock.set_chunk_delay(0)
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Focus a token
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+
+      # Request help
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+
+      # Wait for streaming to complete
+      Process.sleep(500)
+
+      # Wait a bit more for the final update
+      Process.sleep(200)
+
+      # Verify final response is displayed
+      popup_html = view |> element("[data-testid=\"llm-popup\"]") |> render()
+      assert popup_html =~ "This is the complete help response for testing."
+
+      # Verify loading is complete
+      refute popup_html =~ "Thinking..."
+
+      # Clean up
+      Lex.LLM.ClientMock.clear_mock()
+    end
+
+    test "loading state is shown while waiting for LLM response", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "Hello world.")
+      _tokens = create_tokens_for_sentence(sentence, ["Hello", "world", "."])
+
+      # Set up slow response to keep loading state visible
+      Lex.LLM.ClientMock.set_mock_response("Response")
+      Lex.LLM.ClientMock.set_chunk_delay(500)
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Focus a token
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+
+      # Request help
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+
+      # Immediately check for loading state (before streaming completes)
+      popup_html = view |> element("[data-testid=\"llm-popup\"]") |> render()
+      assert popup_html =~ "Thinking..."
+
+      # Clean up
+      Lex.LLM.ClientMock.clear_mock()
+    end
+
+    test "sentence-level help shows popup with placeholder", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "This is a test sentence.")
+      create_tokens_for_sentence(sentence, ["This", "is", "a", "test", "sentence", "."])
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Don't focus any token - request sentence-level help
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+
+      # Verify popup is visible
+      assert view |> has_element?("[data-testid=\"llm-popup\"]")
+
+      # Verify sentence-level help placeholder is shown
+      popup_html = view |> element("[data-testid=\"llm-popup\"]") |> render()
+      assert popup_html =~ "Sentence-level help coming soon"
+    end
+
+    test "HTTP 4xx error displays appropriate message", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "Hello world.")
+      create_tokens_for_sentence(sentence, ["Hello", "world", "."])
+
+      # Set up 4xx error
+      Lex.LLM.ClientMock.set_mock_error({:http_error, 400})
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Focus a token
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+
+      # Request help
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+
+      Process.sleep(500)
+
+      # Verify error is displayed
+      popup_html = view |> element("[data-testid=\"llm-popup\"]") |> render()
+      assert popup_html =~ "class=\"llm-popup-error\""
+
+      # Clean up
+      Lex.LLM.ClientMock.clear_mock()
+    end
+
+    test "HTTP 5xx error displays appropriate message", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "Hello world.")
+      create_tokens_for_sentence(sentence, ["Hello", "world", "."])
+
+      # Set up 5xx error
+      Lex.LLM.ClientMock.set_mock_error({:http_error, 500})
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Focus a token
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+
+      # Request help
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+
+      Process.sleep(500)
+
+      # Verify error is displayed
+      popup_html = view |> element("[data-testid=\"llm-popup\"]") |> render()
+      assert popup_html =~ "class=\"llm-popup-error\""
 
       # Clean up
       Lex.LLM.ClientMock.clear_mock()

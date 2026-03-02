@@ -539,8 +539,11 @@ defmodule LexWeb.ReaderLive.Show do
               assign(socket, lexeme_states: new_states, vocab_counts: load_vocab_counts(user_id))
 
             # Start LLM request with streaming
+            # Capture the LiveView PID to ensure messages go to the right process
+            live_view_pid = self()
+
             stream_callback = fn event ->
-              send(self(), Tuple.insert_at(event, 0, :llm_event))
+              send(live_view_pid, Tuple.insert_at(event, 0, :llm_event))
             end
 
             case Vocab.request_llm_help(
@@ -658,6 +661,12 @@ defmodule LexWeb.ReaderLive.Show do
        llm_loading: false
      )
      |> push_event("llm_error", %{message: error_message})}
+  end
+
+  # Catch-all to handle Task completion messages and other unexpected messages
+  @impl true
+  def handle_info(_msg, socket) do
+    {:noreply, socket}
   end
 
   defp load_reader_data(user_id, document_id) do

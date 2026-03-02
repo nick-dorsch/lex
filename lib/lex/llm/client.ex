@@ -125,7 +125,7 @@ defmodule Lex.LLM.Client do
              headers,
              body
            ) do
-      result = stream_response(conn, callback, "", [])
+      result = stream_response(conn, callback, "", [], timeout)
       Mint.HTTP.close(conn)
       result
     else
@@ -138,13 +138,13 @@ defmodule Lex.LLM.Client do
     end
   end
 
-  defp stream_response(conn, callback, buffer, chunks_acc) do
+  defp stream_response(conn, callback, buffer, chunks_acc, timeout) do
     receive do
       message ->
         case Mint.HTTP.stream(conn, message) do
           :unknown ->
             # Not a Mint message, continue
-            stream_response(conn, callback, buffer, chunks_acc)
+            stream_response(conn, callback, buffer, chunks_acc, timeout)
 
           {:ok, conn, responses} ->
             {new_conn, new_buffer, new_chunks_acc, done} =
@@ -154,7 +154,7 @@ defmodule Lex.LLM.Client do
               send_completion_stats(callback, new_chunks_acc)
               :ok
             else
-              stream_response(new_conn, callback, new_buffer, new_chunks_acc)
+              stream_response(new_conn, callback, new_buffer, new_chunks_acc, timeout)
             end
 
           {:error, conn, error, _responses} ->
@@ -163,7 +163,7 @@ defmodule Lex.LLM.Client do
             :error
         end
     after
-      30_000 ->
+      timeout ->
         Mint.HTTP.close(conn)
         callback.({:error, :timeout})
         :error

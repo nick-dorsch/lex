@@ -170,7 +170,9 @@ defmodule Lex.LLM.ClientMock do
   """
   @spec clear_mock() :: :ok
   def clear_mock do
+    # Clear from both process dictionary and persistent term
     Process.delete(@mock_state_key)
+    :persistent_term.erase({__MODULE__, :mock_state})
     :ok
   end
 
@@ -178,18 +180,38 @@ defmodule Lex.LLM.ClientMock do
   # Private Functions
   # ============================================================================
 
+  # Use persistent_term for shared state across processes
   defp get_mock_state do
-    Process.get(@mock_state_key, %{
-      response: nil,
-      chunks: nil,
-      error: nil,
-      last_request: nil,
-      chunk_delay_ms: @default_chunk_delay_ms
-    })
+    # First try process dictionary (for backward compatibility in tests)
+    case Process.get(@mock_state_key) do
+      nil ->
+        # Fall back to persistent_term for cross-process access
+        case :persistent_term.get({__MODULE__, :mock_state}, :undefined) do
+          :undefined ->
+            default_state = %{
+              response: nil,
+              chunks: nil,
+              error: nil,
+              last_request: nil,
+              chunk_delay_ms: @default_chunk_delay_ms
+            }
+
+            :persistent_term.put({__MODULE__, :mock_state}, default_state)
+            default_state
+
+          state ->
+            state
+        end
+
+      state ->
+        state
+    end
   end
 
   defp update_mock_state(new_state) do
+    # Update both process dictionary and persistent_term
     Process.put(@mock_state_key, new_state)
+    :persistent_term.put({__MODULE__, :mock_state}, new_state)
   end
 
   defp do_stream_response(state, callback) do
