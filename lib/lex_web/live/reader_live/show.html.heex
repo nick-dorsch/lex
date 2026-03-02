@@ -33,6 +33,21 @@
     <% end %>
 
     <%= if @sentence do %>
+        <!-- LLM Help Popup -->
+        <%= if @llm_popup_visible do %>
+          <div class="llm-popup" data-testid="llm-popup">
+            <%= if @llm_loading do %>
+              <div class="llm-loading">Loading...</div>
+            <% end %>
+            <%= if @llm_error do %>
+              <div class="llm-error"><%= @llm_error %></div>
+            <% end %>
+            <%= if @llm_content != "" do %>
+              <div class="llm-content"><%= @llm_content %></div>
+            <% end %>
+          </div>
+        <% end %>
+
         <div class="reading-area flex-1 overflow-hidden px-4">
           <div class="reader-sentence-stage w-full max-w-4xl h-full mx-auto overflow-hidden">
             <!-- Previous sentence (muted, smaller) -->

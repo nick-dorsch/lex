@@ -10,6 +10,7 @@ defmodule LexWeb.ReaderLive.Show do
   alias Lex.Library.Section
   alias Lex.Text.Sentence
   alias Lex.Text.Token
+  alias Lex.Accounts.User
 
   import Ecto.Query
 
@@ -28,7 +29,8 @@ defmodule LexWeb.ReaderLive.Show do
          prev_sentences: prev_sentences,
          next_sentences: next_sentences,
          section_progress: section_progress,
-         document_progress: document_progress
+         document_progress: document_progress,
+         current_user: current_user
        }} ->
         # Mark lexemes as seen and log enter event when sentence is displayed
         if sentence do
@@ -58,9 +60,15 @@ defmodule LexWeb.ReaderLive.Show do
            focused_token_index: 0,
            loading: false,
            user_id: user_id,
+           current_user: current_user,
            help_requested: false,
            context_sentence_count: @context_sentence_count,
-           vocab_counts: vocab_counts
+           vocab_counts: vocab_counts,
+           llm_popup_visible: false,
+           llm_loading: false,
+           llm_error: nil,
+           llm_content: "",
+           current_llm_request_id: nil
          )}
 
       {:error, :document_not_found} ->
@@ -446,6 +454,29 @@ defmodule LexWeb.ReaderLive.Show do
 
   # Handles LLM help request when spacebar is pressed
   defp handle_llm_help(socket) do
+    # If popup is visible, hide it (toggle off)
+    if socket.assigns.llm_popup_visible do
+      dismiss_llm_popup(socket)
+    else
+      start_llm_help_request(socket)
+    end
+  end
+
+  # Dismisses the LLM popup and clears state
+  defp dismiss_llm_popup(socket) do
+    {:noreply,
+     socket
+     |> assign(
+       llm_popup_visible: false,
+       llm_content: "",
+       llm_error: nil,
+       current_llm_request_id: nil,
+       llm_loading: false
+     )}
+  end
+
+  # Starts a new LLM help request
+  defp start_llm_help_request(socket) do
     user_id = socket.assigns.user_id
     document = socket.assigns.document
     sentence = socket.assigns.sentence
@@ -453,77 +484,186 @@ defmodule LexWeb.ReaderLive.Show do
     case socket.assigns.focused_token_index do
       0 ->
         # No focused token - request sentence-level help
-        case Vocab.log_llm_request(user_id, document.id, sentence.id, nil, :sentence) do
-          {:ok, _} ->
-            # Log the reading event
-            {:ok, _} =
-              Reader.log_event(user_id, :llm_help_requested, %{
-                document_id: document.id,
-                sentence_id: sentence.id,
-                request_type: :sentence
-              })
-
-            {:noreply, assign(socket, help_requested: true)}
-
-          {:error, _} ->
-            {:noreply, put_flash(socket, :error, "Failed to request help")}
-        end
+        handle_sentence_level_help(socket, user_id, document, sentence)
 
       token_index ->
-        # Focused token exists - advance learning state and request token-level help
-        token = Enum.at(socket.assigns.tokens, token_index - 1)
+        # Focused token exists - request token-level help
+        handle_token_level_help(socket, user_id, document, sentence, token_index)
+    end
+  end
+
+  defp handle_sentence_level_help(socket, user_id, document, sentence) do
+    case Vocab.log_llm_request(user_id, document.id, sentence.id, nil, :sentence) do
+      {:ok, request} ->
+        # Log the reading event
+        {:ok, _} =
+          Reader.log_event(user_id, :llm_help_requested, %{
+            document_id: document.id,
+            sentence_id: sentence.id,
+            request_type: :sentence
+          })
+
+        # For now, sentence-level help just shows the popup without streaming
+        # (can be extended later to call LLM)
+        {:noreply,
+         assign(socket,
+           help_requested: true,
+           llm_popup_visible: true,
+           llm_loading: false,
+           llm_content: "Sentence-level help coming soon...",
+           current_llm_request_id: request.id
+         )}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Failed to request help")}
+    end
+  end
+
+  defp handle_token_level_help(socket, user_id, document, sentence, token_index) do
+    token = Enum.at(socket.assigns.tokens, token_index - 1)
+
+    case token && !token.is_punctuation && token.lexeme_id do
+      nil ->
+        {:noreply, socket}
+
+      lexeme_id ->
         token_id = token.id
 
-        case token && !token.is_punctuation && token.lexeme_id do
-          nil ->
-            {:noreply, socket}
+        # Advance help state (seen -> learning -> known)
+        case Vocab.advance_help_state(user_id, lexeme_id) do
+          {:ok, updated_state} ->
+            # Update lexeme_states in assigns immediately
+            new_states = Map.put(socket.assigns.lexeme_states, lexeme_id, updated_state)
 
-          lexeme_id ->
-            # Advance help state (seen -> learning -> known)
-            case Vocab.advance_help_state(user_id, lexeme_id) do
-              {:ok, updated_state} ->
-                # Log LLM request
-                case Vocab.log_llm_request(
-                       user_id,
-                       document.id,
-                       sentence.id,
-                       token_id,
-                       :token
-                     ) do
-                  {:ok, _} ->
-                    # Log the reading event
-                    {:ok, _} =
-                      Reader.log_event(user_id, :llm_help_requested, %{
-                        document_id: document.id,
-                        sentence_id: sentence.id,
-                        token_id: token_id,
-                        lexeme_id: lexeme_id,
-                        request_type: :token
-                      })
+            socket =
+              assign(socket, lexeme_states: new_states, vocab_counts: load_vocab_counts(user_id))
 
-                    # Update lexeme_states in assigns
-                    new_states = Map.put(socket.assigns.lexeme_states, lexeme_id, updated_state)
-
-                    {:noreply,
-                     socket
-                     |> assign(lexeme_states: new_states)
-                     |> assign(vocab_counts: load_vocab_counts(user_id))
-                     |> assign(help_requested: true)}
-
-                  {:error, _} ->
-                    {:noreply, put_flash(socket, :error, "Failed to request help")}
-                end
-
-              {:error, _} ->
-                {:noreply, put_flash(socket, :error, "Failed to update word status")}
+            # Start LLM request with streaming
+            stream_callback = fn event ->
+              send(self(), Tuple.insert_at(event, 0, :llm_event))
             end
+
+            case Vocab.request_llm_help(
+                   user_id,
+                   document.id,
+                   sentence.id,
+                   token_id,
+                   stream_callback
+                 ) do
+              {:ok, request_id} ->
+                # Log the reading event
+                {:ok, _} =
+                  Reader.log_event(user_id, :llm_help_requested, %{
+                    document_id: document.id,
+                    sentence_id: sentence.id,
+                    token_id: token_id,
+                    lexeme_id: lexeme_id,
+                    request_type: :token
+                  })
+
+                {:noreply,
+                 assign(socket,
+                   help_requested: true,
+                   llm_popup_visible: true,
+                   llm_loading: true,
+                   llm_content: "",
+                   llm_error: nil,
+                   current_llm_request_id: request_id
+                 )}
+
+              {:error, reason} ->
+                error_message = llm_error_to_message(reason)
+
+                {:noreply,
+                 socket
+                 |> assign(
+                   llm_popup_visible: true,
+                   llm_loading: false,
+                   llm_error: error_message
+                 )
+                 |> push_event("llm_error", %{message: error_message})}
+            end
+
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Failed to update word status")}
         end
     end
   end
 
+  defp llm_error_to_message(:not_configured), do: "LLM not configured. Please contact support."
+  defp llm_error_to_message(:user_not_found), do: "User not found."
+  defp llm_error_to_message(:token_not_found), do: "Token not found."
+  defp llm_error_to_message(:required_data_not_found), do: "Required data not found."
+  defp llm_error_to_message(_), do: "An error occurred while requesting help."
+
+  # Handle LLM streaming chunks
+  @impl true
+  def handle_info({:llm_event, :chunk, content}, socket) do
+    request_id = socket.assigns.current_llm_request_id
+
+    new_content = socket.assigns.llm_content <> content
+
+    {:noreply,
+     socket
+     |> assign(llm_content: new_content)
+     |> push_event("llm_chunk", %{content: content, request_id: request_id})}
+  end
+
+  # Handle cached LLM response (immediate, no streaming)
+  @impl true
+  def handle_info({:llm_event, :cached, response_text}, socket) do
+    request_id = socket.assigns.current_llm_request_id
+
+    {:noreply,
+     socket
+     |> assign(
+       llm_content: response_text,
+       llm_loading: false
+     )
+     |> push_event("llm_chunk", %{content: response_text, request_id: request_id})
+     |> push_event("llm_done", %{})}
+  end
+
+  # Handle LLM streaming completion
+  @impl true
+  def handle_info({:llm_event, :done, stats}, socket) do
+    request_id = socket.assigns.current_llm_request_id
+
+    # Finalize the request record with stats
+    if request_id do
+      Vocab.finalize_llm_request(
+        request_id,
+        socket.assigns.llm_content,
+        stats[:latency_ms],
+        stats[:prompt_tokens],
+        stats[:completion_tokens]
+      )
+    end
+
+    {:noreply,
+     socket
+     |> assign(llm_loading: false)
+     |> push_event("llm_done", %{})}
+  end
+
+  # Handle LLM streaming errors
+  @impl true
+  def handle_info({:llm_event, :error, reason}, socket) do
+    error_message = llm_error_to_message(reason)
+
+    {:noreply,
+     socket
+     |> assign(
+       llm_error: error_message,
+       llm_loading: false
+     )
+     |> push_event("llm_error", %{message: error_message})}
+  end
+
   defp load_reader_data(user_id, document_id) do
     with {:ok, position} <- Reader.get_or_create_position(user_id, document_id),
-         document when not is_nil(document) <- Repo.get(Document, document_id) do
+         document when not is_nil(document) <- Repo.get(Document, document_id),
+         current_user when not is_nil(current_user) <- Repo.get(User, user_id) do
       section = position.section_id && Repo.get(Section, position.section_id)
       sentence = position.sentence_id && Repo.get(Sentence, position.sentence_id)
 
@@ -580,7 +720,8 @@ defmodule LexWeb.ReaderLive.Show do
          prev_sentences: prev_sentences,
          next_sentences: next_sentences,
          section_progress: section_progress,
-         document_progress: document_progress
+         document_progress: document_progress,
+         current_user: current_user
        }}
     else
       {:error, :document_not_found} -> {:error, :document_not_found}

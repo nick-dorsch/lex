@@ -7,8 +7,16 @@ defmodule LexWeb.ReaderLive.ShowTest do
   alias Lex.Accounts.User
   alias Lex.Library.Document
   alias Lex.Library.Section
+  alias Lex.Text.Lexeme
   alias Lex.Text.Sentence
   alias Lex.Text.Token
+  alias Lex.Vocab
+
+  setup do
+    # Clear mock state before each test
+    Lex.LLM.ClientMock.clear_mock()
+    :ok
+  end
 
   describe "show" do
     test "mounts with valid document and position", %{conn: conn} do
@@ -104,6 +112,128 @@ defmodule LexWeb.ReaderLive.ShowTest do
     end
   end
 
+  describe "llm_help" do
+    test "pressing space with focused token shows popup and starts loading", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "This is a test.")
+      _tokens = create_tokens_for_sentence(sentence, ["This", "is", "a", "test", "."])
+
+      # Set up mock response
+      Lex.LLM.ClientMock.set_mock_response("This is the help response.")
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Focus the token (index 4 for "test")
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+
+      # Press space to request help
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+
+      # Verify popup is visible and loading
+      assert view |> has_element?("[data-testid=\"llm-popup\"]")
+
+      # Clean up
+      Lex.LLM.ClientMock.clear_mock()
+    end
+
+    test "pressing space again hides popup", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "This is a test.")
+      create_tokens_for_sentence(sentence, ["This", "is", "a", "test", "."])
+
+      # Set up mock response
+      Lex.LLM.ClientMock.set_mock_response("Help text")
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Focus a token and show popup
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+
+      # Verify popup is visible
+      assert view |> has_element?("[data-testid=\"llm-popup\"]")
+
+      # Press space again to hide popup
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+
+      # Clean up
+      Lex.LLM.ClientMock.clear_mock()
+    end
+
+    test "cached response is returned immediately", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "This is a test.")
+      tokens = create_tokens_for_sentence(sentence, ["This", "is", "a", "test", "."])
+      token = Enum.find(tokens, &(&1.surface == "test"))
+
+      # Pre-create a cached response
+      {:ok, _} =
+        Vocab.log_llm_request(user.id, document.id, sentence.id, token.id, :token)
+
+      # Update it with a response
+      {:ok, _request} =
+        Repo.get_by(Lex.Vocab.LlmHelpRequest,
+          user_id: user.id,
+          document_id: document.id,
+          sentence_id: sentence.id,
+          token_id: token.id
+        )
+        |> Ecto.Changeset.change(response_text: "Cached help response")
+        |> Repo.update()
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Focus the token
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+
+      # Press space to request help
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+
+      # Should show popup immediately (no loading state needed for cached)
+      assert view |> has_element?("[data-testid=\"llm-popup\"]")
+    end
+
+    test "LLM error shows error message", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "This is a test.")
+      create_tokens_for_sentence(sentence, ["This", "is", "a", "test", "."])
+
+      # Set up mock to return an error
+      Lex.LLM.ClientMock.set_mock_error(:timeout)
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Focus a token
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+
+      # Press space to request help
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+
+      # Should show popup
+      assert view |> has_element?("[data-testid=\"llm-popup\"]")
+
+      # Clean up
+      Lex.LLM.ClientMock.clear_mock()
+    end
+  end
+
   # Helper functions for creating test data
 
   defp create_user do
@@ -165,6 +295,15 @@ defmodule LexWeb.ReaderLive.ShowTest do
     words
     |> Enum.with_index(1)
     |> Enum.map(fn {word, position} ->
+      # Create a lexeme for non-punctuation words
+      lexeme_id =
+        if word in [".", ",", "!", "?", ";", ":"] do
+          nil
+        else
+          lexeme = create_lexeme(%{lemma: String.downcase(word)})
+          lexeme.id
+        end
+
       %Token{}
       |> Token.changeset(%{
         sentence_id: sentence.id,
@@ -175,9 +314,27 @@ defmodule LexWeb.ReaderLive.ShowTest do
         pos: "WORD",
         is_punctuation: word in [".", ",", "!", "?", ";", ":"],
         char_start: 0,
-        char_end: String.length(word)
+        char_end: String.length(word),
+        lexeme_id: lexeme_id
       })
       |> Repo.insert!()
     end)
+  end
+
+  defp create_lexeme(attrs) do
+    unique_id = System.unique_integer([:positive])
+
+    default_attrs = %{
+      language: "en",
+      lemma: "test#{unique_id}",
+      normalized_lemma: "test#{unique_id}",
+      pos: "NOUN"
+    }
+
+    attrs = Map.merge(default_attrs, attrs)
+
+    %Lexeme{}
+    |> Lexeme.changeset(attrs)
+    |> Repo.insert!()
   end
 end
