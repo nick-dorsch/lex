@@ -1,27 +1,93 @@
 <div class="library-container">
-  <h1>My Library</h1>
+  <div class="library-header">
+    <h1>My Library</h1>
+    <button class="refresh-btn" phx-click="refresh">
+      Refresh
+    </button>
+  </div>
 
-  <%= if Enum.empty?(@documents) do %>
+  <%= if @calibre_available do %>
+    <div class="calibre-notice">
+      <span class="notice-text">Calibre library connected</span>
+    </div>
+  <% end %>
+
+  <%= if Enum.empty?(@items) do %>
     <div class="empty-state">
-      <p>No documents ready for reading.</p>
-      <p>Upload a document to get started!</p>
+      <p>No documents found.</p>
+      <%= if not @calibre_available do %>
+        <p class="sub-text">
+          Set CALIBRE_LIBRARY_PATH environment variable to import books from Calibre.
+        </p>
+      <% end %>
     </div>
   <% else %>
-    <div class="document-grid">
-      <%= for document <- @documents do %>
-        <div class="document-card" phx-click="navigate_to_reader" phx-value-document_id={document.id}>
-          <div class="document-info">
-            <h3 class="document-title"><%= document.title %></h3>
-            <%= if document.author do %>
-              <p class="document-author">by <%= document.author %></p>
+    <div class="library-grid">
+      <%= for item <- @items do %>
+        <div class={"library-item #{item.source} #{item.import_status}"}>
+          <div class="item-content">
+            <h3 class="item-title"><%= item.title %></h3>
+            <%= if item.author do %>
+              <p class="item-author">by <%= item.author %></p>
+            <% end %>
+            
+            <%= if item.source == :calibre do %>
+              <span class="source-badge calibre">Calibre</span>
             <% end %>
           </div>
           
-          <div class="progress-container">
-            <div class="progress-bar">
-              <div class="progress-fill" style={"width: #{document.progress}%"}></div>
-            </div>
-            <span class="progress-text"><%= document.progress %>%</span>
+          <div class="item-actions">
+            <%= case item.import_status do %>
+              <% :not_imported -> %>
+                <button 
+                  class="import-btn" 
+                  phx-click="import" 
+                  phx-value-file_path={item.id}
+                >
+                  Import
+                </button>
+              
+              <% :importing -> %>
+                <div class="importing-indicator">
+                  <span class="spinner"></span>
+                  <span class="status-text">Importing...</span>
+                </div>
+              
+              <% :imported -> %>
+                <div class="imported-badge">
+                  <span class="badge-text">Imported</span>
+                  <%= if item.progress != nil do %>
+                    <div class="progress-container">
+                      <div class="progress-bar">
+                        <div class="progress-fill" style={"width: #{item.progress}%"}></div>
+                      </div>
+                      <span class="progress-text"><%= item.progress %>%</span>
+                    </div>
+                  <% end %>
+                  <button 
+                    class="read-btn" 
+                    phx-click="navigate_to_reader" 
+                    phx-value-document_id={item.document_id}
+                  >
+                    Read
+                  </button>
+                </div>
+              
+              <% :error -> %>
+                <div class="error-state">
+                  <span class="error-badge">Error</span>
+                  <%= if item.error do %>
+                    <p class="error-message"><%= item.error %></p>
+                  <% end %>
+                  <button 
+                    class="import-btn retry" 
+                    phx-click="import" 
+                    phx-value-file_path={item.id}
+                  >
+                    Retry
+                  </button>
+                </div>
+            <% end %>
           </div>
         </div>
       <% end %>

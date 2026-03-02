@@ -15,8 +15,8 @@ defmodule LexWeb.LibraryLive.IndexTest do
       {:ok, _view, html} = live(conn, "/library")
 
       assert html =~ "My Library"
-      assert html =~ "No documents ready for reading"
-      assert html =~ "Upload a document to get started!"
+      assert html =~ "No documents found."
+      assert html =~ "Set CALIBRE_LIBRARY_PATH"
     end
 
     test "renders list of ready documents", %{conn: conn} do

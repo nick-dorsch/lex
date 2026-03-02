@@ -16,17 +16,17 @@ defmodule Lex.Vocab.StateTransitionsTest do
   import Phoenix.LiveViewTest
   import Ecto.Query
 
-  alias Lex.Repo
   alias Lex.Accounts.User
   alias Lex.Library.Document
   alias Lex.Library.Section
+  alias Lex.Reader
+  alias Lex.Reader.ReadingEvent
+  alias Lex.Reader.UserSentenceState
+  alias Lex.Repo
+  alias Lex.Text.Lexeme
   alias Lex.Text.Sentence
   alias Lex.Text.Token
-  alias Lex.Text.Lexeme
   alias Lex.Vocab.UserLexemeState
-  alias Lex.Reader.UserSentenceState
-  alias Lex.Reader.ReadingEvent
-  alias Lex.Reader
 
   # ============================================================================
   # Skip Content Behavior

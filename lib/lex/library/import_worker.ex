@@ -11,6 +11,31 @@ defmodule Lex.Library.ImportWorker do
   require Logger
 
   @doc """
+  Starts an async import for a given EPUB file.
+
+  Spawns a supervised Task that:
+  1. Calls Library.import_epub/2 to perform the actual import
+  2. On success: marks complete in tracker and broadcasts event
+  3. On failure: marks failed in tracker and broadcasts event with error
+
+  Note: The import must already be marked as started via ImportTracker.start_import/2
+  before calling this function.
+
+  ## Parameters
+    - file_path: Path to the EPUB file
+    - user_id: ID of the user importing the file
+    - opts: Options to pass to Library.import_epub/2 (optional)
+  """
+  @spec start_import(String.t(), integer(), keyword()) :: {:ok, pid()} | {:error, term()}
+  def start_import(file_path, user_id, opts \\ []) do
+    Task.Supervisor.start_child(
+      Lex.Library.ImportTaskSupervisor,
+      fn -> run(file_path, user_id, opts) end,
+      restart: :temporary
+    )
+  end
+
+  @doc """
   Runs the import workflow for a given EPUB file.
 
   This function is designed to be run within a supervised Task.
