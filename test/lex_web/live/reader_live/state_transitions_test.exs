@@ -560,7 +560,7 @@ defmodule LexWeb.ReaderLive.StateTransitionsTest do
       assert count == 0
     end
 
-    test "can toggle known words back to learning", %{conn: conn} do
+    test "keeps known words unchanged when toggled", %{conn: conn} do
       user = create_user()
       document = create_ready_document(user)
       section = create_section(document)
@@ -587,18 +587,18 @@ defmodule LexWeb.ReaderLive.StateTransitionsTest do
       render_hook(view, :key_nav, %{"key" => "w"})
       render_hook(view, :key_nav, %{"key" => "l"})
 
-      # Should now be learning
+      # Should remain known
       state = Repo.one(UserLexemeState)
-      assert state.status == "learning"
-      assert state.known_at == nil
+      assert state.status == "known"
+      assert state.known_at != nil
 
-      # Should have logged mark_learning event
+      # Should not log learning toggle events
       count =
         ReadingEvent
-        |> where([e], e.event_type == "mark_learning")
+        |> where([e], e.event_type in ["mark_learning", "unmark_learning"])
         |> Repo.aggregate(:count, :id)
 
-      assert count == 1
+      assert count == 0
     end
 
     test "does not toggle punctuation tokens", %{conn: conn} do

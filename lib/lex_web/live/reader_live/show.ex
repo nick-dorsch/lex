@@ -558,7 +558,7 @@ defmodule LexWeb.ReaderLive.Show do
                    token_id,
                    stream_callback
                  ) do
-              {:ok, request_id} ->
+              {:ok, request_id, start_time} ->
                 # Log the reading event
                 {:ok, _} =
                   Reader.log_event(user_id, :llm_help_requested, %{
@@ -576,7 +576,8 @@ defmodule LexWeb.ReaderLive.Show do
                    llm_loading: true,
                    llm_content: "",
                    llm_error: nil,
-                   current_llm_request_id: request_id
+                   current_llm_request_id: request_id,
+                   current_llm_start_time: start_time
                  )}
 
               {:error, reason} ->
@@ -658,6 +659,15 @@ defmodule LexWeb.ReaderLive.Show do
   @impl true
   def handle_info({:llm_event, :error, reason}, socket) do
     error_message = llm_error_to_message(reason)
+
+    # Finalize the request with latency if we have a request ID and start time
+    request_id = socket.assigns.current_llm_request_id
+    start_time = socket.assigns.current_llm_start_time
+
+    if request_id && start_time do
+      latency_ms = System.monotonic_time(:millisecond) - start_time
+      Vocab.finalize_llm_request(request_id, nil, latency_ms, nil, nil)
+    end
 
     {:noreply,
      socket

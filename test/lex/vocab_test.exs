@@ -419,7 +419,7 @@ defmodule Lex.VocabTest do
       assert seen_state.seen_count == 6
     end
 
-    test "known words can be toggled back to learning" do
+    test "known words remain known when toggled" do
       user = create_user()
       lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
 
@@ -441,13 +441,12 @@ defmodule Lex.VocabTest do
 
       assert known_state.status == "known"
 
-      # Toggle should move known words back to learning
-      assert {:ok, relearning_state} = Vocab.toggle_learning(user.id, lexeme.id)
-      assert relearning_state.status == "learning"
-      assert relearning_state.learning_since != nil
-      assert relearning_state.known_at == nil
-      # Incremented
-      assert relearning_state.seen_count == 11
+      # Toggle should keep known words unchanged
+      assert {:ok, unchanged_state} = Vocab.toggle_learning(user.id, lexeme.id)
+      assert unchanged_state.status == "known"
+      assert unchanged_state.learning_since == nil
+      assert unchanged_state.known_at == known_at
+      assert unchanged_state.seen_count == 10
     end
 
     test "sets learning_since timestamp when toggling to learning" do
@@ -939,8 +938,8 @@ defmodule Lex.VocabTest do
       assert request.token_id == token.id
       assert request.request_type == "token"
       assert request.response_language == "es"
-      assert request.provider == "openai"
-      assert request.model == "gpt-4o-mini"
+      assert request.provider == Application.get_env(:lex, :llm_provider, "openai")
+      assert request.model == Application.get_env(:lex, :llm_model, "gpt-4o-mini")
       assert request.inserted_at != nil
     end
 
@@ -959,8 +958,8 @@ defmodule Lex.VocabTest do
       assert request.token_id == nil
       assert request.request_type == "sentence"
       assert request.response_language == "fr"
-      assert request.provider == "openai"
-      assert request.model == "gpt-4o-mini"
+      assert request.provider == Application.get_env(:lex, :llm_provider, "openai")
+      assert request.model == Application.get_env(:lex, :llm_model, "gpt-4o-mini")
     end
 
     test "uses document language for response_language" do
@@ -1290,10 +1289,12 @@ defmodule Lex.VocabTest do
         send(self(), {:callback, event})
       end
 
-      assert {:ok, request_id} =
+      assert {:ok, request_id, start_time} =
                Vocab.request_llm_help(user.id, document.id, sentence.id, token.id, callback)
 
       assert request_id == cached_request.id
+      # Cached responses have nil start_time
+      assert start_time == nil
 
       # Verify callback received cached event
       assert_receive {:callback, {:cached, "Cached explanation."}}, 1000
@@ -1369,6 +1370,10 @@ defmodule Lex.VocabTest do
       lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
       token = create_token(sentence.id, lexeme.id, %{position: 1, surface: "hola"})
 
+      # Save original config
+      original_api_key = Application.get_env(:lex, :llm_api_key)
+      original_base_url = Application.get_env(:lex, :llm_base_url)
+
       # Set up a mock configuration
       Application.put_env(:lex, :llm_api_key, "test-key")
       Application.put_env(:lex, :llm_base_url, "https://api.test.com")
@@ -1376,8 +1381,12 @@ defmodule Lex.VocabTest do
       callback = fn _event -> :ok end
 
       # Should create a request even though LLM call will fail in tests
-      assert {:ok, _request_id} =
+      assert {:ok, _request_id, start_time} =
                Vocab.request_llm_help(user.id, document.id, sentence.id, token.id, callback)
+
+      # Streaming requests have a valid start_time
+      assert start_time != nil
+      assert is_integer(start_time)
 
       # Verify a request was created
       requests =
@@ -1388,8 +1397,164 @@ defmodule Lex.VocabTest do
       assert length(requests) >= 1
 
       # Clean up
-      Application.delete_env(:lex, :llm_api_key)
-      Application.delete_env(:lex, :llm_base_url)
+      Application.put_env(:lex, :llm_api_key, original_api_key)
+      Application.put_env(:lex, :llm_base_url, original_base_url)
+    end
+
+    test "calculates and passes latency_ms in stats on completion" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      token = create_token(sentence.id, lexeme.id, %{position: 1, surface: "hola"})
+
+      # Save original config
+      original_client = Application.get_env(:lex, :llm_client)
+
+      # Configure mock client
+      Application.put_env(:lex, :llm_client, Lex.LLM.ClientMock)
+      Lex.LLM.ClientMock.set_mock_response("Test response")
+      Lex.LLM.ClientMock.set_chunk_delay(0)
+
+      parent = self()
+
+      callback = fn event ->
+        send(parent, {:test_callback, event})
+      end
+
+      assert {:ok, _request_id, start_time} =
+               Vocab.request_llm_help(user.id, document.id, sentence.id, token.id, callback)
+
+      # Streaming requests have a valid start_time
+      assert start_time != nil
+      assert is_integer(start_time)
+
+      # Wait for the :done event with a longer timeout
+      stats =
+        receive do
+          {:test_callback, {:done, s}} -> s
+        after
+          2000 -> nil
+        end
+
+      assert stats != nil, "Expected to receive :done event with stats"
+      assert stats[:latency_ms] != nil, "Expected latency_ms to be present in stats"
+      assert stats[:latency_ms] >= 0, "Expected latency_ms to be non-negative"
+
+      # Clean up
+      Lex.LLM.ClientMock.clear_mock()
+      Application.put_env(:lex, :llm_client, original_client)
+    end
+
+    test "persists latency when finalizing streaming response" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      token = create_token(sentence.id, lexeme.id, %{position: 1, surface: "hola"})
+
+      # Save original config
+      original_client = Application.get_env(:lex, :llm_client)
+
+      # Configure mock client
+      Application.put_env(:lex, :llm_client, Lex.LLM.ClientMock)
+      Lex.LLM.ClientMock.set_mock_response("Test explanation")
+      Lex.LLM.ClientMock.set_chunk_delay(0)
+
+      parent = self()
+
+      callback = fn event ->
+        send(parent, {:test_callback, event})
+      end
+
+      assert {:ok, request_id, start_time} =
+               Vocab.request_llm_help(user.id, document.id, sentence.id, token.id, callback)
+
+      # Streaming requests have a valid start_time
+      assert start_time != nil
+      assert is_integer(start_time)
+
+      # Wait for the :done event with stats
+      stats =
+        receive do
+          {:test_callback, {:done, s}} -> s
+        after
+          2000 -> nil
+        end
+
+      assert stats != nil, "Expected to receive :done event with stats"
+      assert stats[:latency_ms] != nil, "Expected latency_ms to be present in stats"
+      assert stats[:latency_ms] >= 0, "Expected latency_ms to be non-negative"
+
+      # Flush remaining events
+      Enum.each(1..10, fn _ ->
+        receive do
+          {:test_callback, _} -> :ok
+        after
+          50 -> :ok
+        end
+      end)
+
+      # Finalize with the latency from stats
+      assert {:ok, finalized} =
+               Vocab.finalize_llm_request(
+                 request_id,
+                 "Test explanation",
+                 stats[:latency_ms],
+                 stats[:prompt_tokens],
+                 stats[:completion_tokens]
+               )
+
+      assert finalized.latency_ms == stats[:latency_ms]
+      assert finalized.latency_ms >= 0
+
+      # Clean up
+      Lex.LLM.ClientMock.clear_mock()
+      Application.put_env(:lex, :llm_client, original_client)
+    end
+
+    test "persists latency on not_configured error finalization" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      token = create_token(sentence.id, lexeme.id, %{position: 1, surface: "hola"})
+
+      # Clear LLM configuration to trigger :not_configured error
+      original_api_key = Application.get_env(:lex, :llm_api_key)
+      original_base_url = Application.get_env(:lex, :llm_base_url)
+      original_client = Application.get_env(:lex, :llm_client)
+
+      Application.delete_env(:lex, :llm_client)
+      Application.put_env(:lex, :llm_api_key, nil)
+      Application.put_env(:lex, :llm_base_url, nil)
+
+      callback = fn _event -> :ok end
+
+      # Request should fail with :not_configured
+      assert {:error, :not_configured} =
+               Vocab.request_llm_help(user.id, document.id, sentence.id, token.id, callback)
+
+      # Find the created request and verify it was finalized with latency
+      requests =
+        Lex.Vocab.LlmHelpRequest
+        |> where([r], r.sentence_id == ^sentence.id and r.token_id == ^token.id)
+        |> Repo.all()
+
+      assert length(requests) >= 1
+
+      request = List.first(requests)
+      # The request should have been finalized with a latency value
+      assert request.latency_ms != nil
+      assert request.latency_ms >= 0
+
+      # Restore configuration
+      Application.put_env(:lex, :llm_api_key, original_api_key)
+      Application.put_env(:lex, :llm_base_url, original_base_url)
+      Application.put_env(:lex, :llm_client, original_client)
     end
   end
 end

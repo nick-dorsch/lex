@@ -92,7 +92,7 @@ defmodule Lex.Vocab do
   2. Checks current state:
      - If no state or `seen`: create/update to `learning`, set `learning_since`
      - If `learning`: revert to `seen` (not `known`)
-     - If `known`: revert to `learning` for relearning
+     - If `known`: keep `known` (known words are not demoted by toggle)
 
   ## Examples
 
@@ -103,7 +103,7 @@ defmodule Lex.Vocab do
       {:ok, %UserLexemeState{status: "seen"}}
 
       iex> toggle_learning(user_id, lexeme_id_known)
-      {:ok, %UserLexemeState{status: "learning"}}
+      {:ok, %UserLexemeState{status: "known"}}
   """
   @spec toggle_learning(integer(), integer()) ::
           {:ok, UserLexemeState.t()} | {:error, Ecto.Changeset.t()}
@@ -132,18 +132,8 @@ defmodule Lex.Vocab do
         |> Repo.insert()
 
       %{status: "known"} = state ->
-        # Allow relearning known words
-        attrs = %{
-          status: "learning",
-          learning_since: now,
-          known_at: nil,
-          seen_count: state.seen_count + 1,
-          last_seen_at: now
-        }
-
-        state
-        |> UserLexemeState.changeset(attrs)
-        |> Repo.update()
+        # Known words are stable when toggling learning
+        {:ok, state}
 
       %{status: "learning"} = state ->
         # Revert from learning to seen
@@ -370,7 +360,7 @@ defmodule Lex.Vocab do
     else
       # Get provider and model from config, with defaults
       provider = Application.get_env(:lex, :llm_provider, "openai")
-      model = Application.get_env(:lex, :llm_model, "gpt-4")
+      model = Application.get_env(:lex, :llm_model, "gpt-4o-mini")
 
       attrs = %{
         user_id: user_id,
@@ -523,7 +513,7 @@ defmodule Lex.Vocab do
       {:error, :not_configured}
   """
   @spec request_llm_help(integer(), integer(), integer(), integer(), function()) ::
-          {:ok, integer()} | {:error, atom()}
+          {:ok, integer(), integer()} | {:error, atom()}
   def request_llm_help(user_id, document_id, sentence_id, token_id, stream_callback)
       when is_function(stream_callback, 1) do
     # Get user for response language preference
@@ -539,7 +529,7 @@ defmodule Lex.Vocab do
         {:ok, cached_request} ->
           # Return cached response immediately
           stream_callback.({:cached, cached_request.response_text})
-          {:ok, cached_request.id}
+          {:ok, cached_request.id, nil}
 
         {:error, :not_found} ->
           # Create request record and start streaming
@@ -607,11 +597,12 @@ defmodule Lex.Vocab do
         # Start streaming
         case Lex.LLM.Client.stream_chat_completion(messages, wrapper_callback) do
           {:ok, _task} ->
-            {:ok, request.id}
+            {:ok, request.id, start_time}
 
           {:error, :not_configured} = error ->
-            # Update request to reflect failure
-            finalize_llm_request(request.id, nil, nil, nil, nil)
+            # Update request to reflect failure with elapsed latency
+            latency_ms = System.monotonic_time(:millisecond) - start_time
+            finalize_llm_request(request.id, nil, latency_ms, nil, nil)
             error
         end
       end
@@ -620,7 +611,7 @@ defmodule Lex.Vocab do
 
   defp create_pending_llm_request(user_id, document_id, sentence_id, token_id, response_language) do
     provider = Application.get_env(:lex, :llm_provider, "openai")
-    model = Application.get_env(:lex, :llm_model, "gpt-4")
+    model = Application.get_env(:lex, :llm_model, "gpt-4o-mini")
 
     attrs = %{
       user_id: user_id,
@@ -643,10 +634,16 @@ defmodule Lex.Vocab do
     stream_callback.({:chunk, content})
   end
 
-  defp handle_stream_event({:done, stats}, _request_id, _start_time, stream_callback) do
+  defp handle_stream_event({:done, stats}, _request_id, start_time, stream_callback) do
+    # Calculate elapsed wall-clock latency from request start
+    latency_ms = System.monotonic_time(:millisecond) - start_time
+
+    # Merge latency into stats for finalization
+    stats_with_latency = Map.put(stats, :latency_ms, latency_ms)
+
     # Note: finalize_llm_request/5 should be called separately with the full response
     # after streaming completes, using the accumulated response text
-    stream_callback.({:done, stats})
+    stream_callback.({:done, stats_with_latency})
 
     :ok
   end
