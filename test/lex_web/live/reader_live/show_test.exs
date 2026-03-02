@@ -63,6 +63,47 @@ defmodule LexWeb.ReaderLive.ShowTest do
       assert html =~ "No content available for this document."
     end
 
+    test "creates one LLM connection owner per LiveView session", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "Session owner test sentence.")
+      create_tokens_for_sentence(sentence, ["Session", "owner", "test", "sentence", "."])
+
+      {:ok, view1, _html} = live(conn, "/read/#{document.id}")
+      owner1 = llm_connection_owner(view1)
+
+      assert is_pid(owner1)
+      assert Process.alive?(owner1)
+
+      {:ok, view2, _html} = live(conn, "/read/#{document.id}")
+      owner2 = llm_connection_owner(view2)
+
+      assert is_pid(owner2)
+      assert Process.alive?(owner2)
+      refute owner1 == owner2
+    end
+
+    test "LLM connection owner terminates when LiveView session ends", %{conn: conn} do
+      previous_trap_exit = Process.flag(:trap_exit, true)
+      on_exit(fn -> Process.flag(:trap_exit, previous_trap_exit) end)
+
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "Owner cleanup test sentence.")
+      create_tokens_for_sentence(sentence, ["Owner", "cleanup", "test", "sentence", "."])
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+      owner = llm_connection_owner(view)
+
+      owner_ref = Process.monitor(owner)
+
+      Process.exit(view.pid, :shutdown)
+
+      assert_receive {:DOWN, ^owner_ref, :process, ^owner, _reason}, 1000
+    end
+
     test "shows untitled section when section has no title", %{conn: conn} do
       user = create_user()
       document = create_ready_document(user)
@@ -599,5 +640,9 @@ defmodule LexWeb.ReaderLive.ShowTest do
     %Lexeme{}
     |> Lexeme.changeset(attrs)
     |> Repo.insert!()
+  end
+
+  defp llm_connection_owner(view) do
+    :sys.get_state(view.pid).socket.assigns.llm_connection_owner
   end
 end

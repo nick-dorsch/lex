@@ -6,6 +6,7 @@ defmodule LexWeb.ReaderLive.Show do
   alias Lex.Repo
   alias Lex.Reader
   alias Lex.Vocab
+  alias Lex.LLM.SessionConnectionOwner
   alias Lex.Library.Document
   alias Lex.Library.Section
   alias Lex.Text.Sentence
@@ -46,6 +47,14 @@ defmodule LexWeb.ReaderLive.Show do
 
         vocab_counts = load_vocab_counts(user_id)
 
+        llm_connection_owner =
+          if connected?(socket) do
+            {:ok, owner} = SessionConnectionOwner.start_link()
+            owner
+          else
+            nil
+          end
+
         {:ok,
          assign(socket,
            document: document,
@@ -69,7 +78,8 @@ defmodule LexWeb.ReaderLive.Show do
            llm_error: nil,
            llm_content: "",
            llm_content_html: "",
-           current_llm_request_id: nil
+           current_llm_request_id: nil,
+           llm_connection_owner: llm_connection_owner
          )}
 
       {:error, :document_not_found} ->
@@ -78,6 +88,15 @@ defmodule LexWeb.ReaderLive.Show do
          |> put_flash(:error, "Document not found")
          |> redirect(to: ~p"/library")}
     end
+  end
+
+  @impl true
+  def terminate(_reason, socket) do
+    if owner = socket.assigns[:llm_connection_owner] do
+      if Process.alive?(owner), do: GenServer.stop(owner, :normal)
+    end
+
+    :ok
   end
 
   @impl true
