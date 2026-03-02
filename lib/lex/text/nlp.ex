@@ -31,7 +31,7 @@ defmodule Lex.Text.NLP do
 
     try do
       # Write text to input file
-      File.write!(input_file, text, [:utf8])
+      File.write!(input_file, text)
 
       # Build command
       args = build_args(input_file, output_file, opts)

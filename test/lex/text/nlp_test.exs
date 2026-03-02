@@ -199,6 +199,32 @@ defmodule Lex.Text.NLPTest do
         :meck.unload(System)
       end
     end
+
+    test "preserves UTF-8 input text when writing temp file" do
+      parent = self()
+      text = "Antoine de Saint-Exupéry dijo: ¡dónde estás!"
+
+      :meck.new(System, [:passthrough])
+
+      :meck.expect(System, :cmd, fn _cmd, args, _opts ->
+        input_idx = Enum.find_index(args, &(&1 == "--input"))
+        input_path = Enum.at(args, input_idx + 1)
+
+        output_path = extract_output_path(args)
+        File.write!(output_path, ~s({"sentences": []}))
+
+        send(parent, {:input_contents, File.read!(input_path)})
+        {"", 0}
+      end)
+
+      try do
+        assert {:ok, []} = NLP.process_text(text)
+        assert_receive {:input_contents, input_contents}
+        assert input_contents == text
+      after
+        :meck.unload(System)
+      end
+    end
   end
 
   defp extract_output_path(args) do
