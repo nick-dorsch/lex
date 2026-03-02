@@ -4,7 +4,7 @@ if System.get_env("PHX_SERVER") do
   config :lex, LexWeb.Endpoint, server: true
 end
 
-config :lex, :calibre_library_path, System.get_env("CALIBRE_LIBRARY_PATH", "~/CalibreLibrary")
+config :lex, :calibre_library_path, System.get_env("CALIBRE_LIBRARY_PATH", "~/Calibre Library")
 
 if config_env() == :prod do
   database_url =

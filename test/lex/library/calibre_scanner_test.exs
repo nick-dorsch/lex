@@ -64,6 +64,21 @@ defmodule Lex.Library.CalibreScannerTest do
       assert book.title == "El Principito"
     end
 
+    test "includes cover path when cover image exists", %{temp_dir: temp_dir} do
+      source_epub = "test/fixtures/epubs/el_principito.epub"
+      nested_dir = Path.join(temp_dir, "Author Name")
+      File.mkdir_p!(nested_dir)
+
+      dest_epub = Path.join(nested_dir, "book.epub")
+      File.cp!(source_epub, dest_epub)
+
+      cover_path = Path.join(nested_dir, "cover.jpg")
+      File.write!(cover_path, "fake-cover-bytes")
+
+      assert {:ok, [book]} = CalibreScanner.scan()
+      assert book.cover_path == cover_path
+    end
+
     test "correctly identifies already-imported books", %{temp_dir: temp_dir} do
       # Create a user
       user =

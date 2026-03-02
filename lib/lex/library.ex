@@ -14,7 +14,7 @@ defmodule Lex.Library do
   Returns the configured Calibre library path.
 
   The path is read from the `CALIBRE_LIBRARY_PATH` environment variable,
-  defaulting to `~/CalibreLibrary`. The path is expanded to an absolute path.
+  defaulting to `~/Calibre Library`. The path is expanded to an absolute path.
 
   Returns the expanded path as a string. Logs a warning if the path doesn't exist.
   """

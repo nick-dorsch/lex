@@ -19,6 +19,7 @@ defmodule Lex.Library.CalibreScanner do
 
   defstruct [
     :file_path,
+    :cover_path,
     :title,
     :author,
     :language,
@@ -28,6 +29,7 @@ defmodule Lex.Library.CalibreScanner do
 
   @type t :: %__MODULE__{
           file_path: String.t(),
+          cover_path: String.t() | nil,
           title: String.t(),
           author: String.t(),
           language: String.t(),
@@ -129,6 +131,7 @@ defmodule Lex.Library.CalibreScanner do
       {:ok, metadata} ->
         %__MODULE__{
           file_path: file_path,
+          cover_path: cover_path_for(file_path),
           title: metadata.title,
           author: metadata.author,
           language: metadata.language,
@@ -141,6 +144,7 @@ defmodule Lex.Library.CalibreScanner do
 
         %__MODULE__{
           file_path: file_path,
+          cover_path: cover_path_for(file_path),
           title: Path.basename(file_path, ".epub"),
           author: "Unknown",
           language: "es",
@@ -164,6 +168,7 @@ defmodule Lex.Library.CalibreScanner do
       document ->
         %__MODULE__{
           file_path: file_path,
+          cover_path: cover_path_for(file_path),
           title: document.title,
           author: document.author || "Unknown",
           language: document.language,
@@ -171,5 +176,13 @@ defmodule Lex.Library.CalibreScanner do
           document_id: document_id
         }
     end
+  end
+
+  defp cover_path_for(file_path) do
+    book_dir = Path.dirname(file_path)
+
+    ["cover.jpg", "cover.jpeg", "cover.png"]
+    |> Enum.map(&Path.join(book_dir, &1))
+    |> Enum.find(&File.exists?/1)
   end
 end

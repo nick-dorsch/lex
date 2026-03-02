@@ -25,7 +25,7 @@
       <p>No documents found.</p>
       <%= if not @calibre_available do %>
         <p class="sub-text">
-          Set CALIBRE_LIBRARY_PATH environment variable to import books from Calibre.
+          Using default path ~/Calibre Library. Set CALIBRE_LIBRARY_PATH to override.
         </p>
       <% end %>
     </div>
@@ -33,6 +33,12 @@
     <div class="library-grid">
       <%= for item <- @items do %>
         <div class={"library-item #{item.source} #{item.import_status}"}>
+          <%= if item.cover_token do %>
+            <div class="item-cover">
+              <img src={~p"/calibre/covers/#{item.cover_token}"} alt={"Cover for #{item.title}"} loading="lazy" />
+            </div>
+          <% end %>
+
           <div class="item-content">
             <h3 class="item-title"><%= item.title %></h3>
             <%= if item.author do %>

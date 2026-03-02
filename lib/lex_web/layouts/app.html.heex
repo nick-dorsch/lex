@@ -1,7 +1,7 @@
 <main class="container mx-auto px-4 py-8 max-w-7xl">
   <div id="flash-messages" class="mb-4">
     <%= if info = Phoenix.Flash.get(@flash, :info) do %>
-      <div class="flash-info bg-blue-900 text-blue-100 px-4 py-3 rounded mb-2" role="alert">
+      <div class="flash-info bg-amber-900/60 text-amber-100 px-4 py-3 rounded mb-2 border border-amber-700/50" role="alert">
         <%= info %>
       </div>
     <% end %>

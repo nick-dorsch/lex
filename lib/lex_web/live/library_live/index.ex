@@ -20,6 +20,7 @@ defmodule LexWeb.LibraryLive.Index do
           id: String.t() | integer(),
           title: String.t(),
           author: String.t(),
+          cover_token: String.t() | nil,
           source: :calibre | :database,
           import_status: :not_imported | :importing | :imported | :error,
           document_id: integer() | nil,
@@ -215,6 +216,7 @@ defmodule LexWeb.LibraryLive.Index do
       id: book.file_path,
       title: book.title,
       author: book.author,
+      cover_token: cover_token(book.cover_path),
       source: :calibre,
       import_status: book.import_status,
       document_id: book.document_id,
@@ -231,6 +233,7 @@ defmodule LexWeb.LibraryLive.Index do
       id: document.id,
       title: document.title,
       author: document.author || "Unknown",
+      cover_token: nil,
       source: :database,
       import_status: :imported,
       document_id: document.id,
@@ -310,5 +313,11 @@ defmodule LexWeb.LibraryLive.Index do
     else
       0
     end
+  end
+
+  defp cover_token(nil), do: nil
+
+  defp cover_token(cover_path) do
+    Phoenix.Token.sign(LexWeb.Endpoint, "calibre_cover", cover_path)
   end
 end

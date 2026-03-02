@@ -542,7 +542,7 @@ defmodule Lex.LibraryTest do
       path = Library.calibre_library_path()
 
       assert String.starts_with?(path, "/")
-      assert path =~ "CalibreLibrary"
+      assert path =~ "Calibre Library"
     end
 
     test "reads from env var CALIBRE_LIBRARY_PATH" do
@@ -561,7 +561,7 @@ defmodule Lex.LibraryTest do
           System.delete_env("CALIBRE_LIBRARY_PATH")
         end
 
-        Application.put_env(:lex, :calibre_library_path, "~/CalibreLibrary")
+        Application.put_env(:lex, :calibre_library_path, "~/Calibre Library")
       end
     end
 

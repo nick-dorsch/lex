@@ -2,7 +2,7 @@ import Config
 
 config :lex,
   ecto_repos: [Lex.Repo],
-  calibre_library_path: "~/CalibreLibrary"
+  calibre_library_path: "~/Calibre Library"
 
 config :lex, Lex.Repo, adapter: Ecto.Adapters.SQLite3
 
@@ -12,7 +12,9 @@ config :logger, :console,
 
 config :phoenix, :json_library, Jason
 
-config :lex, LexWeb.Endpoint, live_view: [signing_salt: "GJj5zLq7-X-H5ABE"]
+config :lex, LexWeb.Endpoint,
+  pubsub_server: Lex.PubSub,
+  live_view: [signing_salt: "GJj5zLq7-X-H5ABE"]
 
 # Tailwind CSS configuration
 config :tailwind,
