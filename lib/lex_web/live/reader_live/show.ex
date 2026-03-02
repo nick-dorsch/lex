@@ -31,7 +31,7 @@ defmodule LexWeb.ReaderLive.Show do
            sentence: sentence,
            tokens: tokens,
            lexeme_states: lexeme_states,
-           focused_token_id: nil,
+           focused_token_index: 0,
            loading: false,
            user_id: user_id,
            help_requested: false
@@ -46,19 +46,19 @@ defmodule LexWeb.ReaderLive.Show do
   end
 
   @impl true
-  def handle_event("focus_token", %{"token_id" => token_id}, socket) do
-    token_id = String.to_integer(token_id)
-    {:noreply, assign(socket, focused_token_id: token_id)}
+  def handle_event("focus_token", %{"token_index" => token_index}, socket) do
+    token_index = String.to_integer(token_index)
+    {:noreply, assign(socket, focused_token_index: token_index)}
   end
 
   @impl true
   def handle_event("toggle_learning", %{}, socket) do
-    case socket.assigns.focused_token_id do
-      nil ->
+    case socket.assigns.focused_token_index do
+      0 ->
         {:noreply, socket}
 
-      token_id ->
-        token = Enum.find(socket.assigns.tokens, fn t -> t.id == token_id end)
+      token_index ->
+        token = Enum.at(socket.assigns.tokens, token_index - 1)
 
         case token && token.lexeme_id do
           nil ->
@@ -98,12 +98,10 @@ defmodule LexWeb.ReaderLive.Show do
         handle_previous_sentence(socket)
 
       "w" ->
-        # Next token - stub for now
-        {:noreply, socket}
+        handle_next_token(socket)
 
       "b" ->
-        # Previous token - stub for now
-        {:noreply, socket}
+        handle_previous_token(socket)
 
       "space" ->
         handle_llm_help(socket)
@@ -111,6 +109,36 @@ defmodule LexWeb.ReaderLive.Show do
       _ ->
         {:noreply, socket}
     end
+  end
+
+  # Handles navigation to next token (w key)
+  defp handle_next_token(socket) do
+    tokens = socket.assigns.tokens
+    token_count = length(tokens)
+
+    new_index =
+      case socket.assigns.focused_token_index do
+        0 -> 1
+        current when current >= token_count -> 1
+        current -> current + 1
+      end
+
+    {:noreply, assign(socket, focused_token_index: new_index)}
+  end
+
+  # Handles navigation to previous token (b key)
+  defp handle_previous_token(socket) do
+    tokens = socket.assigns.tokens
+    token_count = length(tokens)
+
+    new_index =
+      case socket.assigns.focused_token_index do
+        0 -> token_count
+        1 -> token_count
+        current -> current - 1
+      end
+
+    {:noreply, assign(socket, focused_token_index: new_index)}
   end
 
   # Handles navigation to the next sentence (j key)
@@ -146,7 +174,7 @@ defmodule LexWeb.ReaderLive.Show do
            sentence: new_sentence,
            tokens: tokens,
            lexeme_states: lexeme_states,
-           focused_token_id: nil,
+           focused_token_index: 0,
            help_requested: false
          )}
 
@@ -189,7 +217,7 @@ defmodule LexWeb.ReaderLive.Show do
            sentence: new_sentence,
            tokens: tokens,
            lexeme_states: lexeme_states,
-           focused_token_id: nil,
+           focused_token_index: 0,
            help_requested: false
          )}
 
@@ -205,8 +233,8 @@ defmodule LexWeb.ReaderLive.Show do
     document = socket.assigns.document
     sentence = socket.assigns.sentence
 
-    case socket.assigns.focused_token_id do
-      nil ->
+    case socket.assigns.focused_token_index do
+      0 ->
         # No focused token - request sentence-level help
         case Vocab.log_llm_request(user_id, document.id, sentence.id, nil, :sentence) do
           {:ok, _} ->
@@ -224,9 +252,10 @@ defmodule LexWeb.ReaderLive.Show do
             {:noreply, put_flash(socket, :error, "Failed to request help")}
         end
 
-      token_id ->
+      token_index ->
         # Focused token exists - mark as learning and request token-level help
-        token = Enum.find(socket.assigns.tokens, fn t -> t.id == token_id end)
+        token = Enum.at(socket.assigns.tokens, token_index - 1)
+        token_id = token.id
 
         case token && token.lexeme_id do
           nil ->

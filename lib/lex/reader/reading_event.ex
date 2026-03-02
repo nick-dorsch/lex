@@ -5,6 +5,7 @@ defmodule Lex.Reader.ReadingEvent do
   @valid_event_types [
     "enter_sentence",
     "advance_sentence",
+    "retreat_sentence",
     "skip_range",
     "mark_learning",
     "unmark_learning",

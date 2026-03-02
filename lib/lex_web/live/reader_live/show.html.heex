@@ -13,20 +13,20 @@
     <%= if @sentence do %>
       <div class="sentence-display">
         <div class="tokens-container">
-          <%= for token <- @tokens do %>
+          <%= for {token, index} <- Enum.with_index(@tokens, 1) do %>
             <% lexeme_state = Map.get(@lexeme_states, token.lexeme_id)
-               is_focused = @focused_token_id == token.id
+               is_focused = @focused_token_index == index
                is_learning = lexeme_state && lexeme_state.status == "learning"
                token_class = cond do
                  is_learning -> "token learning"
-                 is_focused -> "token focused"
+                 is_focused -> "token focused ring-2 ring-indigo-500 ring-offset-2"
                  true -> "token"
                end
             %>
             <span
               class={token_class}
               phx-click="focus_token"
-              phx-value-token_id={token.id}
+              phx-value-token_index={index}
             >
               <%= token.surface %>
             </span>
@@ -35,8 +35,8 @@
       </div>
 
       <div class="reader-controls">
-        <%= if @focused_token_id do %>
-          <% focused_token = Enum.find(@tokens, fn t -> t.id == @focused_token_id end)
+        <%= if @focused_token_index > 0 do %>
+          <% focused_token = Enum.at(@tokens, @focused_token_index - 1)
              focused_lexeme_state = focused_token && Map.get(@lexeme_states, focused_token.lexeme_id)
              is_learning = focused_lexeme_state && focused_lexeme_state.status == "learning"
           %>

@@ -31,8 +31,8 @@ defmodule LexWeb.ReaderComponents do
     """
   end
 
-  defp status_class(:new), do: "bg-amber-200 px-1 rounded"
-  defp status_class(:seen), do: "border border-gray-400 border-dashed px-1 rounded"
-  defp status_class(:learning), do: "bg-blue-200 px-1 rounded"
-  defp status_class(:known), do: ""
+  defp status_class(:new), do: "bg-amber-200 px-1 rounded cursor-pointer"
+  defp status_class(:seen), do: "border border-gray-400 border-dashed px-1 rounded cursor-pointer"
+  defp status_class(:learning), do: "bg-blue-200 px-1 rounded cursor-pointer"
+  defp status_class(:known), do: "cursor-pointer"
 end
