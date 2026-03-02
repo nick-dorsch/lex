@@ -326,6 +326,170 @@ defmodule Lex.ReaderTest do
     end
   end
 
+  describe "next_sentence/3" do
+    test "navigates to next sentence within same section" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence1 = create_sentence(section.id, 1, "First sentence.")
+      sentence2 = create_sentence(section.id, 2, "Second sentence.")
+
+      assert {:ok, %{section: returned_section, sentence: returned_sentence}} =
+               Reader.next_sentence(document.id, section.id, sentence1.id)
+
+      assert returned_section.id == section.id
+      assert returned_sentence.id == sentence2.id
+    end
+
+    test "navigates to first sentence of next section" do
+      user = create_user()
+      document = create_document(user.id)
+      section1 = create_section(document.id, 1)
+      section2 = create_section(document.id, 2)
+      sentence1 = create_sentence(section1.id, 1, "Last sentence of section 1.")
+      sentence2 = create_sentence(section2.id, 1, "First sentence of section 2.")
+
+      assert {:ok, %{section: returned_section, sentence: returned_sentence}} =
+               Reader.next_sentence(document.id, section1.id, sentence1.id)
+
+      assert returned_section.id == section2.id
+      assert returned_sentence.id == sentence2.id
+    end
+
+    test "returns error at end of document" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1, "Only sentence.")
+
+      assert {:error, :end_of_document} =
+               Reader.next_sentence(document.id, section.id, sentence.id)
+    end
+
+    test "returns error when at last sentence of last section" do
+      user = create_user()
+      document = create_document(user.id)
+      section1 = create_section(document.id, 1)
+      section2 = create_section(document.id, 2)
+      _sentence1 = create_sentence(section1.id, 1, "Sentence in section 1.")
+      sentence2 = create_sentence(section2.id, 1, "Last sentence in document.")
+
+      assert {:error, :end_of_document} =
+               Reader.next_sentence(document.id, section2.id, sentence2.id)
+    end
+
+    test "skips empty sections" do
+      user = create_user()
+      document = create_document(user.id)
+      section1 = create_section(document.id, 1)
+      _section2 = create_section(document.id, 2)
+      section3 = create_section(document.id, 3)
+      sentence1 = create_sentence(section1.id, 1, "Last sentence of section 1.")
+      # section2 has no sentences
+      sentence3 = create_sentence(section3.id, 1, "First sentence of section 3.")
+
+      assert {:ok, %{section: returned_section, sentence: returned_sentence}} =
+               Reader.next_sentence(document.id, section1.id, sentence1.id)
+
+      assert returned_section.id == section3.id
+      assert returned_sentence.id == sentence3.id
+    end
+
+    test "returns end_of_document when only empty sections remain" do
+      user = create_user()
+      document = create_document(user.id)
+      section1 = create_section(document.id, 1)
+      _section2 = create_section(document.id, 2)
+      sentence = create_sentence(section1.id, 1, "Only sentence with content.")
+      # section2 has no sentences
+
+      assert {:error, :end_of_document} =
+               Reader.next_sentence(document.id, section1.id, sentence.id)
+    end
+  end
+
+  describe "previous_sentence/3" do
+    test "navigates to previous sentence within same section" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence1 = create_sentence(section.id, 1, "First sentence.")
+      sentence2 = create_sentence(section.id, 2, "Second sentence.")
+
+      assert {:ok, %{section: returned_section, sentence: returned_sentence}} =
+               Reader.previous_sentence(document.id, section.id, sentence2.id)
+
+      assert returned_section.id == section.id
+      assert returned_sentence.id == sentence1.id
+    end
+
+    test "navigates to last sentence of previous section" do
+      user = create_user()
+      document = create_document(user.id)
+      section1 = create_section(document.id, 1)
+      section2 = create_section(document.id, 2)
+      sentence1 = create_sentence(section1.id, 1, "Last sentence of section 1.")
+      sentence2 = create_sentence(section2.id, 1, "First sentence of section 2.")
+
+      assert {:ok, %{section: returned_section, sentence: returned_sentence}} =
+               Reader.previous_sentence(document.id, section2.id, sentence2.id)
+
+      assert returned_section.id == section1.id
+      assert returned_sentence.id == sentence1.id
+    end
+
+    test "returns error at start of document" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1, "Only sentence.")
+
+      assert {:error, :start_of_document} =
+               Reader.previous_sentence(document.id, section.id, sentence.id)
+    end
+
+    test "returns error when at first sentence of first section" do
+      user = create_user()
+      document = create_document(user.id)
+      section1 = create_section(document.id, 1)
+      section2 = create_section(document.id, 2)
+      sentence1 = create_sentence(section1.id, 1, "First sentence in document.")
+      _sentence2 = create_sentence(section2.id, 1, "Sentence in section 2.")
+
+      assert {:error, :start_of_document} =
+               Reader.previous_sentence(document.id, section1.id, sentence1.id)
+    end
+
+    test "skips empty sections when going backwards" do
+      user = create_user()
+      document = create_document(user.id)
+      section1 = create_section(document.id, 1)
+      _section2 = create_section(document.id, 2)
+      section3 = create_section(document.id, 3)
+      sentence1 = create_sentence(section1.id, 1, "Last sentence of section 1.")
+      # section2 has no sentences
+      sentence3 = create_sentence(section3.id, 1, "First sentence of section 3.")
+
+      assert {:ok, %{section: returned_section, sentence: returned_sentence}} =
+               Reader.previous_sentence(document.id, section3.id, sentence3.id)
+
+      assert returned_section.id == section1.id
+      assert returned_sentence.id == sentence1.id
+    end
+
+    test "returns start_of_document when only empty sections before" do
+      user = create_user()
+      document = create_document(user.id)
+      _section1 = create_section(document.id, 1)
+      section2 = create_section(document.id, 2)
+      # section1 has no sentences
+      sentence = create_sentence(section2.id, 1, "Only sentence with content.")
+
+      assert {:error, :start_of_document} =
+               Reader.previous_sentence(document.id, section2.id, sentence.id)
+    end
+  end
+
   describe "log_event/3" do
     test "logs enter_sentence event" do
       user = create_user()

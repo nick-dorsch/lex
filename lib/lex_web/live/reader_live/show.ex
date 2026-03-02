@@ -92,12 +92,10 @@ defmodule LexWeb.ReaderLive.Show do
   def handle_event("key_nav", %{"key" => key}, socket) do
     case key do
       "j" ->
-        # Next sentence - stub for now
-        {:noreply, socket}
+        handle_next_sentence(socket)
 
       "k" ->
-        # Previous sentence - stub for now
-        {:noreply, socket}
+        handle_previous_sentence(socket)
 
       "w" ->
         # Next token - stub for now
@@ -111,6 +109,92 @@ defmodule LexWeb.ReaderLive.Show do
         handle_llm_help(socket)
 
       _ ->
+        {:noreply, socket}
+    end
+  end
+
+  # Handles navigation to the next sentence (j key)
+  defp handle_next_sentence(socket) do
+    user_id = socket.assigns.user_id
+    document = socket.assigns.document
+    section = socket.assigns.section
+    sentence = socket.assigns.sentence
+
+    case Reader.next_sentence(document.id, section.id, sentence.id) do
+      {:ok, %{section: new_section, sentence: new_sentence}} ->
+        # Update reading position
+        {:ok, _} =
+          Reader.set_position(user_id, document.id, new_section.id, new_sentence.id)
+
+        # Log the navigation event
+        {:ok, _} =
+          Reader.log_event(user_id, :advance_sentence, %{
+            document_id: document.id,
+            from_sentence_id: sentence.id,
+            to_sentence_id: new_sentence.id
+          })
+
+        # Load tokens for new sentence
+        tokens = load_tokens(new_sentence.id)
+        lexeme_ids = Enum.map(tokens, & &1.lexeme_id) |> Enum.reject(&is_nil/1)
+        lexeme_states = load_lexeme_states(user_id, lexeme_ids)
+
+        {:noreply,
+         socket
+         |> assign(
+           section: new_section,
+           sentence: new_sentence,
+           tokens: tokens,
+           lexeme_states: lexeme_states,
+           focused_token_id: nil,
+           help_requested: false
+         )}
+
+      {:error, :end_of_document} ->
+        # Stay at current position (could show a flash message)
+        {:noreply, socket}
+    end
+  end
+
+  # Handles navigation to the previous sentence (k key)
+  defp handle_previous_sentence(socket) do
+    user_id = socket.assigns.user_id
+    document = socket.assigns.document
+    section = socket.assigns.section
+    sentence = socket.assigns.sentence
+
+    case Reader.previous_sentence(document.id, section.id, sentence.id) do
+      {:ok, %{section: new_section, sentence: new_sentence}} ->
+        # Update reading position
+        {:ok, _} =
+          Reader.set_position(user_id, document.id, new_section.id, new_sentence.id)
+
+        # Log the navigation event (using retreat_sentence for going back)
+        {:ok, _} =
+          Reader.log_event(user_id, :retreat_sentence, %{
+            document_id: document.id,
+            from_sentence_id: sentence.id,
+            to_sentence_id: new_sentence.id
+          })
+
+        # Load tokens for new sentence
+        tokens = load_tokens(new_sentence.id)
+        lexeme_ids = Enum.map(tokens, & &1.lexeme_id) |> Enum.reject(&is_nil/1)
+        lexeme_states = load_lexeme_states(user_id, lexeme_ids)
+
+        {:noreply,
+         socket
+         |> assign(
+           section: new_section,
+           sentence: new_sentence,
+           tokens: tokens,
+           lexeme_states: lexeme_states,
+           focused_token_id: nil,
+           help_requested: false
+         )}
+
+      {:error, :start_of_document} ->
+        # Stay at current position
         {:noreply, socket}
     end
   end

@@ -200,6 +200,158 @@ defmodule Lex.Reader do
   end
 
   @doc """
+  Gets the next sentence in the document.
+
+  Returns the next sentence within the current section if available.
+  If at the last sentence of the current section, returns the first sentence
+  of the next section. If at the last sentence of the document, returns
+  an error indicating the end of the document.
+
+  ## Examples
+
+      iex> next_sentence(document_id, current_section_id, current_sentence_id)
+      {:ok, %{section: %Section{}, sentence: %Sentence{}}}
+
+      iex> next_sentence(document_id, last_section_id, last_sentence_id)
+      {:error, :end_of_document}
+  """
+  @spec next_sentence(integer(), integer(), integer()) ::
+          {:ok, %{section: Section.t(), sentence: Sentence.t()}} | {:error, :end_of_document}
+  def next_sentence(document_id, current_section_id, current_sentence_id) do
+    # Get current section to find its position
+    current_section = Repo.get(Section, current_section_id)
+
+    # Try to get next sentence in current section
+    next_in_section =
+      Sentence
+      |> where(section_id: ^current_section_id)
+      |> where([s], s.id > ^current_sentence_id)
+      |> order_by(asc: :position)
+      |> limit(1)
+      |> Repo.one()
+
+    case next_in_section do
+      %Sentence{} = sentence ->
+        {:ok, %{section: current_section, sentence: sentence}}
+
+      nil ->
+        # No more sentences in current section, try next sections
+        find_next_sentence_in_sections(document_id, current_section.position)
+    end
+  end
+
+  # Recursively find the next sentence starting from sections after the given position
+  defp find_next_sentence_in_sections(document_id, after_position) do
+    # Get the next section
+    next_section =
+      Section
+      |> where(document_id: ^document_id)
+      |> where([s], s.position > ^after_position)
+      |> order_by(asc: :position)
+      |> limit(1)
+      |> Repo.one()
+
+    case next_section do
+      nil ->
+        {:error, :end_of_document}
+
+      %Section{} = section ->
+        # Get first sentence of this section
+        first_sentence =
+          Sentence
+          |> where(section_id: ^section.id)
+          |> order_by(asc: :position)
+          |> limit(1)
+          |> Repo.one()
+
+        case first_sentence do
+          nil ->
+            # Section has no sentences, try the next one
+            find_next_sentence_in_sections(document_id, section.position)
+
+          %Sentence{} = sentence ->
+            {:ok, %{section: section, sentence: sentence}}
+        end
+    end
+  end
+
+  @doc """
+  Gets the previous sentence in the document.
+
+  Returns the previous sentence within the current section if available.
+  If at the first sentence of the current section, returns the last sentence
+  of the previous section. If at the first sentence of the document, returns
+  an error indicating the start of the document.
+
+  ## Examples
+
+      iex> previous_sentence(document_id, current_section_id, current_sentence_id)
+      {:ok, %{section: %Section{}, sentence: %Sentence{}}}
+
+      iex> previous_sentence(document_id, first_section_id, first_sentence_id)
+      {:error, :start_of_document}
+  """
+  @spec previous_sentence(integer(), integer(), integer()) ::
+          {:ok, %{section: Section.t(), sentence: Sentence.t()}} | {:error, :start_of_document}
+  def previous_sentence(document_id, current_section_id, current_sentence_id) do
+    # Get current section to find its position
+    current_section = Repo.get(Section, current_section_id)
+
+    # Try to get previous sentence in current section
+    prev_in_section =
+      Sentence
+      |> where(section_id: ^current_section_id)
+      |> where([s], s.id < ^current_sentence_id)
+      |> order_by(desc: :position)
+      |> limit(1)
+      |> Repo.one()
+
+    case prev_in_section do
+      %Sentence{} = sentence ->
+        {:ok, %{section: current_section, sentence: sentence}}
+
+      nil ->
+        # No previous sentences in current section, try previous sections
+        find_previous_sentence_in_sections(document_id, current_section.position)
+    end
+  end
+
+  # Recursively find the previous sentence starting from sections before the given position
+  defp find_previous_sentence_in_sections(document_id, before_position) do
+    # Get the previous section
+    prev_section =
+      Section
+      |> where(document_id: ^document_id)
+      |> where([s], s.position < ^before_position)
+      |> order_by(desc: :position)
+      |> limit(1)
+      |> Repo.one()
+
+    case prev_section do
+      nil ->
+        {:error, :start_of_document}
+
+      %Section{} = section ->
+        # Get last sentence of this section
+        last_sentence =
+          Sentence
+          |> where(section_id: ^section.id)
+          |> order_by(desc: :position)
+          |> limit(1)
+          |> Repo.one()
+
+        case last_sentence do
+          nil ->
+            # Section has no sentences, try the previous one
+            find_previous_sentence_in_sections(document_id, section.position)
+
+          %Sentence{} = sentence ->
+            {:ok, %{section: section, sentence: sentence}}
+        end
+    end
+  end
+
+  @doc """
   Logs a reading event for analytics.
 
   Creates a reading event record with the given user_id, event_type, and metadata.
