@@ -115,11 +115,11 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
 
       # Initially no token should have focus ring
       html = render(view)
-      refute html =~ "ring-2 ring-indigo-400"
+      refute html =~ "token-focused"
 
       # Press 'w' to focus first token
       html = render_hook(view, :key_nav, %{"key" => "w"})
-      assert html =~ "ring-2 ring-indigo-400"
+      assert html =~ "token-focused"
       assert html =~ "First"
     end
 
@@ -149,14 +149,31 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
 
       {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
-      # Focus last token (3rd token - "second")
-      render_hook(view, :key_nav, %{"key" => "w"})
+      # Focus last selectable token (2nd token - "second")
       render_hook(view, :key_nav, %{"key" => "w"})
       render_hook(view, :key_nav, %{"key" => "w"})
 
       # Wrap to first token
       html = render_hook(view, :key_nav, %{"key" => "w"})
       assert html =~ "First"
+    end
+
+    test "navigation skips punctuation tokens", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "First, second.")
+      create_tokens_for_sentence(sentence, ["First", ",", "second", "."])
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # First selectable token
+      html = render_hook(view, :key_nav, %{"key" => "w"})
+      assert html =~ "First"
+
+      # Should skip comma and focus "second"
+      html = render_hook(view, :key_nav, %{"key" => "w"})
+      assert html =~ "second"
     end
 
     test "'b' key focuses last token when no token is focused", %{conn: conn} do
@@ -170,7 +187,7 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
 
       # Press 'b' to focus last token
       html = render_hook(view, :key_nav, %{"key" => "b"})
-      assert html =~ "ring-2 ring-indigo-400"
+      assert html =~ "token-focused"
       assert html =~ "third"
     end
 
@@ -221,13 +238,13 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
 
       # Focus a token in first sentence
       html = render_hook(view, :key_nav, %{"key" => "w"})
-      assert html =~ "ring-2 ring-indigo-400"
+      assert html =~ "token-focused"
 
       # Navigate to next sentence
       html = render_hook(view, :key_nav, %{"key" => "j"})
 
       # Focus should be reset (no ring)
-      refute html =~ "ring-2 ring-indigo-400"
+      refute html =~ "token-focused"
     end
 
     test "focus resets when navigating to previous sentence", %{conn: conn} do
@@ -246,13 +263,13 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
 
       # Focus a token in second sentence
       html = render_hook(view, :key_nav, %{"key" => "w"})
-      assert html =~ "ring-2 ring-indigo-400"
+      assert html =~ "token-focused"
 
       # Navigate back to first sentence
       html = render_hook(view, :key_nav, %{"key" => "k"})
 
       # Focus should be reset (no ring)
-      refute html =~ "ring-2 ring-indigo-400"
+      refute html =~ "token-focused"
     end
   end
 
@@ -365,8 +382,24 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       html = render_click(view, :focus_token, %{"token_index" => "2"})
 
       # Should show focus indicator
-      assert html =~ "ring-2 ring-indigo-400"
+      assert html =~ "token-focused"
       assert html =~ "second"
+    end
+
+    test "clicking punctuation does not set focus", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "First second.")
+      create_tokens_for_sentence(sentence, ["First", "second", "."])
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Try to focus punctuation token
+      html = render_click(view, :focus_token, %{"token_index" => "3"})
+
+      # Focus should remain unset
+      refute html =~ "token-focused"
     end
   end
 

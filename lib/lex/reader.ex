@@ -507,4 +507,98 @@ defmodule Lex.Reader do
     |> ReadingEvent.changeset(attrs)
     |> Repo.insert()
   end
+
+  @doc """
+  Gets the reading progress percentage within a section.
+
+  Calculates the percentage of sentences read in the current section,
+  based on the sentence's position within the section.
+
+  ## Examples
+
+      iex> get_section_progress(section_id, sentence_id)
+      {:ok, 45.5}
+
+      iex> get_section_progress(section_id, first_sentence_id)
+      {:ok, 0.0}
+  """
+  @spec get_section_progress(integer(), integer()) :: {:ok, float()}
+  def get_section_progress(section_id, sentence_id) do
+    # Get the current sentence to find its position
+    current_sentence = Repo.get(Sentence, sentence_id)
+
+    # Count total sentences in the section
+    total_sentences =
+      Sentence
+      |> where(section_id: ^section_id)
+      |> Repo.aggregate(:count, :id)
+
+    if total_sentences == 0 || is_nil(current_sentence) do
+      {:ok, 0.0}
+    else
+      # Count sentences before current (by position) plus current sentence
+      sentences_up_to_current =
+        Sentence
+        |> where(section_id: ^section_id)
+        |> where([s], s.position <= ^current_sentence.position)
+        |> Repo.aggregate(:count, :id)
+
+      percentage = sentences_up_to_current / total_sentences * 100.0
+      {:ok, Float.round(percentage, 1)}
+    end
+  end
+
+  @doc """
+  Gets the reading progress percentage within the entire document.
+
+  Calculates the percentage of sentences read in the entire document,
+  based on the cumulative count of sentences across all sections.
+
+  ## Examples
+
+      iex> get_document_progress(document_id, sentence_id)
+      {:ok, 23.4}
+
+      iex> get_document_progress(document_id, first_sentence_id)
+      {:ok, 0.0}
+  """
+  @spec get_document_progress(integer(), integer()) :: {:ok, float()}
+  def get_document_progress(document_id, sentence_id) do
+    # Get the current sentence with its section
+    current_sentence =
+      Sentence
+      |> where(id: ^sentence_id)
+      |> preload(:section)
+      |> Repo.one()
+
+    # Count total sentences in the document (across all sections)
+    total_sentences =
+      Sentence
+      |> join(:inner, [s], sec in Section, on: s.section_id == sec.id)
+      |> where([s, sec], sec.document_id == ^document_id)
+      |> Repo.aggregate(:count, :id)
+
+    if total_sentences == 0 || is_nil(current_sentence) do
+      {:ok, 0.0}
+    else
+      # Count sentences in sections before current section
+      sentences_before_section =
+        Sentence
+        |> join(:inner, [s], sec in Section, on: s.section_id == sec.id)
+        |> where([s, sec], sec.document_id == ^document_id)
+        |> where([s, sec], sec.position < ^current_sentence.section.position)
+        |> Repo.aggregate(:count, :id) || 0
+
+      # Count sentences up to current in current section
+      sentences_in_current_section =
+        Sentence
+        |> where(section_id: ^current_sentence.section_id)
+        |> where([s], s.position <= ^current_sentence.position)
+        |> Repo.aggregate(:count, :id)
+
+      sentences_up_to_current = sentences_before_section + sentences_in_current_section
+      percentage = sentences_up_to_current / total_sentences * 100.0
+      {:ok, Float.round(percentage, 1)}
+    end
+  end
 end

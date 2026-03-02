@@ -1,6 +1,8 @@
 defmodule LexWeb.ReaderLive.Show do
   use LexWeb, :live_view
 
+  @context_sentence_count 6
+
   alias Lex.Repo
   alias Lex.Reader
   alias Lex.Vocab
@@ -23,8 +25,10 @@ defmodule LexWeb.ReaderLive.Show do
          sentence: sentence,
          tokens: tokens,
          lexeme_states: lexeme_states,
-         prev_sentence: prev_sentence,
-         next_sentence: next_sentence
+         prev_sentences: prev_sentences,
+         next_sentences: next_sentences,
+         section_progress: section_progress,
+         document_progress: document_progress
        }} ->
         # Mark lexemes as seen and log enter event when sentence is displayed
         if sentence do
@@ -38,6 +42,8 @@ defmodule LexWeb.ReaderLive.Show do
             })
         end
 
+        vocab_counts = load_vocab_counts(user_id)
+
         {:ok,
          assign(socket,
            document: document,
@@ -45,12 +51,16 @@ defmodule LexWeb.ReaderLive.Show do
            sentence: sentence,
            tokens: tokens,
            lexeme_states: lexeme_states,
-           prev_sentence: prev_sentence,
-           next_sentence: next_sentence,
+           prev_sentences: prev_sentences,
+           next_sentences: next_sentences,
+           section_progress: section_progress,
+           document_progress: document_progress,
            focused_token_index: 0,
            loading: false,
            user_id: user_id,
-           help_requested: false
+           help_requested: false,
+           context_sentence_count: @context_sentence_count,
+           vocab_counts: vocab_counts
          )}
 
       {:error, :document_not_found} ->
@@ -64,7 +74,12 @@ defmodule LexWeb.ReaderLive.Show do
   @impl true
   def handle_event("focus_token", %{"token_index" => token_index}, socket) do
     token_index = String.to_integer(token_index)
-    {:noreply, assign(socket, focused_token_index: token_index)}
+
+    if selectable_token_index?(socket.assigns.tokens, token_index) do
+      {:noreply, assign(socket, focused_token_index: token_index)}
+    else
+      {:noreply, socket}
+    end
   end
 
   @impl true
@@ -81,7 +96,7 @@ defmodule LexWeb.ReaderLive.Show do
       token_index ->
         token = Enum.at(socket.assigns.tokens, token_index - 1)
 
-        case token && token.lexeme_id do
+        case token && !token.is_punctuation && token.lexeme_id do
           nil ->
             {:noreply, socket}
 
@@ -119,7 +134,12 @@ defmodule LexWeb.ReaderLive.Show do
 
                 # Update lexeme_states in assigns
                 new_states = Map.put(socket.assigns.lexeme_states, lexeme_id, updated_state)
-                {:noreply, assign(socket, lexeme_states: new_states)}
+
+                {:noreply,
+                 assign(socket,
+                   lexeme_states: new_states,
+                   vocab_counts: load_vocab_counts(user_id)
+                 )}
 
               {:error, _changeset} ->
                 {:noreply, put_flash(socket, :error, "Failed to toggle learning state")}
@@ -169,30 +189,18 @@ defmodule LexWeb.ReaderLive.Show do
 
   # Handles navigation to next token (w key)
   defp handle_next_token(socket) do
-    tokens = socket.assigns.tokens
-    token_count = length(tokens)
+    selectable_indices = selectable_token_indices(socket.assigns.tokens)
 
-    new_index =
-      case socket.assigns.focused_token_index do
-        0 -> 1
-        current when current >= token_count -> 1
-        current -> current + 1
-      end
+    new_index = next_selectable_index(selectable_indices, socket.assigns.focused_token_index)
 
     {:noreply, assign(socket, focused_token_index: new_index)}
   end
 
   # Handles navigation to previous token (b key)
   defp handle_previous_token(socket) do
-    tokens = socket.assigns.tokens
-    token_count = length(tokens)
+    selectable_indices = selectable_token_indices(socket.assigns.tokens)
 
-    new_index =
-      case socket.assigns.focused_token_index do
-        0 -> token_count
-        1 -> token_count
-        current -> current - 1
-      end
+    new_index = previous_selectable_index(selectable_indices, socket.assigns.focused_token_index)
 
     {:noreply, assign(socket, focused_token_index: new_index)}
   end
@@ -240,11 +248,28 @@ defmodule LexWeb.ReaderLive.Show do
         lexeme_ids = Enum.map(tokens, & &1.lexeme_id) |> Enum.reject(&is_nil/1)
         lexeme_states = load_lexeme_states(user_id, lexeme_ids)
 
-        # Load new adjacent sentences for context
-        prev_sentence = sentence
+        # Load new context sentences for display
+        prev_sentences =
+          load_context_sentences(
+            document.id,
+            new_section.id,
+            new_sentence.id,
+            :previous,
+            @context_sentence_count
+          )
 
-        next_sentence =
-          load_adjacent_sentence(document.id, new_section.id, new_sentence.id, :next)
+        next_sentences =
+          load_context_sentences(
+            document.id,
+            new_section.id,
+            new_sentence.id,
+            :next,
+            @context_sentence_count
+          )
+
+        # Calculate new progress
+        {:ok, new_section_progress} = Reader.get_section_progress(new_section.id, new_sentence.id)
+        {:ok, new_document_progress} = Reader.get_document_progress(document.id, new_sentence.id)
 
         {:noreply,
          socket
@@ -253,10 +278,13 @@ defmodule LexWeb.ReaderLive.Show do
            sentence: new_sentence,
            tokens: tokens,
            lexeme_states: lexeme_states,
-           prev_sentence: prev_sentence,
-           next_sentence: next_sentence,
+           prev_sentences: prev_sentences,
+           next_sentences: next_sentences,
+           section_progress: new_section_progress,
+           document_progress: new_document_progress,
            focused_token_index: 0,
-           help_requested: false
+           help_requested: false,
+           vocab_counts: load_vocab_counts(user_id)
          )}
 
       {:error, :end_of_document} ->
@@ -289,11 +317,28 @@ defmodule LexWeb.ReaderLive.Show do
         lexeme_ids = Enum.map(tokens, & &1.lexeme_id) |> Enum.reject(&is_nil/1)
         lexeme_states = load_lexeme_states(user_id, lexeme_ids)
 
-        # Load new adjacent sentences for context
-        prev_sentence =
-          load_adjacent_sentence(document.id, new_section.id, new_sentence.id, :previous)
+        # Load new context sentences for display
+        prev_sentences =
+          load_context_sentences(
+            document.id,
+            new_section.id,
+            new_sentence.id,
+            :previous,
+            @context_sentence_count
+          )
 
-        next_sentence = sentence
+        next_sentences =
+          load_context_sentences(
+            document.id,
+            new_section.id,
+            new_sentence.id,
+            :next,
+            @context_sentence_count
+          )
+
+        # Calculate new progress
+        {:ok, new_section_progress} = Reader.get_section_progress(new_section.id, new_sentence.id)
+        {:ok, new_document_progress} = Reader.get_document_progress(document.id, new_sentence.id)
 
         {:noreply,
          socket
@@ -302,10 +347,13 @@ defmodule LexWeb.ReaderLive.Show do
            sentence: new_sentence,
            tokens: tokens,
            lexeme_states: lexeme_states,
-           prev_sentence: prev_sentence,
-           next_sentence: next_sentence,
+           prev_sentences: prev_sentences,
+           next_sentences: next_sentences,
+           section_progress: new_section_progress,
+           document_progress: new_document_progress,
            focused_token_index: 0,
-           help_requested: false
+           help_requested: false,
+           vocab_counts: load_vocab_counts(user_id)
          )}
 
       {:error, :start_of_document} ->
@@ -352,12 +400,28 @@ defmodule LexWeb.ReaderLive.Show do
         lexeme_ids = Enum.map(tokens, & &1.lexeme_id) |> Enum.reject(&is_nil/1)
         lexeme_states = load_lexeme_states(user_id, lexeme_ids)
 
-        # Load new adjacent sentences for context
-        prev_sentence =
-          load_adjacent_sentence(document.id, new_section.id, new_sentence.id, :previous)
+        # Load new context sentences for display
+        prev_sentences =
+          load_context_sentences(
+            document.id,
+            new_section.id,
+            new_sentence.id,
+            :previous,
+            @context_sentence_count
+          )
 
-        next_sentence =
-          load_adjacent_sentence(document.id, new_section.id, new_sentence.id, :next)
+        next_sentences =
+          load_context_sentences(
+            document.id,
+            new_section.id,
+            new_sentence.id,
+            :next,
+            @context_sentence_count
+          )
+
+        # Calculate new progress
+        {:ok, new_section_progress} = Reader.get_section_progress(new_section.id, new_sentence.id)
+        {:ok, new_document_progress} = Reader.get_document_progress(document.id, new_sentence.id)
 
         {:noreply,
          socket
@@ -366,8 +430,10 @@ defmodule LexWeb.ReaderLive.Show do
            sentence: new_sentence,
            tokens: tokens,
            lexeme_states: lexeme_states,
-           prev_sentence: prev_sentence,
-           next_sentence: next_sentence,
+           prev_sentences: prev_sentences,
+           next_sentences: next_sentences,
+           section_progress: new_section_progress,
+           document_progress: new_document_progress,
            focused_token_index: 0,
            help_requested: false
          )}
@@ -404,17 +470,17 @@ defmodule LexWeb.ReaderLive.Show do
         end
 
       token_index ->
-        # Focused token exists - mark as learning and request token-level help
+        # Focused token exists - advance learning state and request token-level help
         token = Enum.at(socket.assigns.tokens, token_index - 1)
         token_id = token.id
 
-        case token && token.lexeme_id do
+        case token && !token.is_punctuation && token.lexeme_id do
           nil ->
             {:noreply, socket}
 
           lexeme_id ->
-            # Mark as learning
-            case Vocab.mark_learning(user_id, lexeme_id) do
+            # Advance help state (seen -> learning -> known)
+            case Vocab.advance_help_state(user_id, lexeme_id) do
               {:ok, updated_state} ->
                 # Log LLM request
                 case Vocab.log_llm_request(
@@ -441,6 +507,7 @@ defmodule LexWeb.ReaderLive.Show do
                     {:noreply,
                      socket
                      |> assign(lexeme_states: new_states)
+                     |> assign(vocab_counts: load_vocab_counts(user_id))
                      |> assign(help_requested: true)}
 
                   {:error, _} ->
@@ -448,7 +515,7 @@ defmodule LexWeb.ReaderLive.Show do
                 end
 
               {:error, _} ->
-                {:noreply, put_flash(socket, :error, "Failed to mark word as learning")}
+                {:noreply, put_flash(socket, :error, "Failed to update word status")}
             end
         end
     end
@@ -470,15 +537,37 @@ defmodule LexWeb.ReaderLive.Show do
       lexeme_ids = Enum.map(tokens, & &1.lexeme_id) |> Enum.reject(&is_nil/1)
       lexeme_states = load_lexeme_states(user_id, lexeme_ids)
 
-      # Load previous and next sentences for context
-      {prev_sentence, next_sentence} =
+      # Load context sentences around current sentence
+      {prev_sentences, next_sentences} =
         if sentence && section do
           {
-            load_adjacent_sentence(document.id, section.id, sentence.id, :previous),
-            load_adjacent_sentence(document.id, section.id, sentence.id, :next)
+            load_context_sentences(
+              document.id,
+              section.id,
+              sentence.id,
+              :previous,
+              @context_sentence_count
+            ),
+            load_context_sentences(
+              document.id,
+              section.id,
+              sentence.id,
+              :next,
+              @context_sentence_count
+            )
           }
         else
-          {nil, nil}
+          {[], []}
+        end
+
+      # Calculate progress percentages
+      {section_progress, document_progress} =
+        if sentence && section do
+          {:ok, sec_prog} = Reader.get_section_progress(section.id, sentence.id)
+          {:ok, doc_prog} = Reader.get_document_progress(document.id, sentence.id)
+          {sec_prog, doc_prog}
+        else
+          {0.0, 0.0}
         end
 
       {:ok,
@@ -488,8 +577,10 @@ defmodule LexWeb.ReaderLive.Show do
          sentence: sentence,
          tokens: tokens,
          lexeme_states: lexeme_states,
-         prev_sentence: prev_sentence,
-         next_sentence: next_sentence
+         prev_sentences: prev_sentences,
+         next_sentences: next_sentences,
+         section_progress: section_progress,
+         document_progress: document_progress
        }}
     else
       {:error, :document_not_found} -> {:error, :document_not_found}
@@ -497,7 +588,21 @@ defmodule LexWeb.ReaderLive.Show do
     end
   end
 
-  defp load_adjacent_sentence(document_id, section_id, sentence_id, direction) do
+  defp load_context_sentences(document_id, section_id, sentence_id, direction, count) do
+    sentences =
+      do_load_context_sentences(document_id, section_id, sentence_id, direction, count, [])
+
+    if direction == :previous do
+      Enum.reverse(sentences)
+    else
+      sentences
+    end
+  end
+
+  defp do_load_context_sentences(_document_id, _section_id, _sentence_id, _direction, 0, acc),
+    do: acc
+
+  defp do_load_context_sentences(document_id, section_id, sentence_id, direction, remaining, acc) do
     result =
       case direction do
         :previous -> Reader.previous_sentence(document_id, section_id, sentence_id)
@@ -505,8 +610,18 @@ defmodule LexWeb.ReaderLive.Show do
       end
 
     case result do
-      {:ok, %{sentence: sentence}} -> sentence
-      {:error, _} -> nil
+      {:ok, %{section: next_section, sentence: next_sentence}} ->
+        do_load_context_sentences(
+          document_id,
+          next_section.id,
+          next_sentence.id,
+          direction,
+          remaining - 1,
+          acc ++ [next_sentence]
+        )
+
+      {:error, _} ->
+        acc
     end
   end
 
@@ -528,5 +643,35 @@ defmodule LexWeb.ReaderLive.Show do
       |> Repo.all()
       |> Map.new(fn state -> {state.lexeme_id, state} end)
     end
+  end
+
+  defp load_vocab_counts(user_id) do
+    Vocab.get_status_counts(user_id)
+  end
+
+  defp selectable_token_indices(tokens) do
+    tokens
+    |> Enum.with_index(1)
+    |> Enum.filter(fn {token, _index} -> not token.is_punctuation end)
+    |> Enum.map(fn {_token, index} -> index end)
+  end
+
+  defp selectable_token_index?(tokens, token_index) do
+    token = Enum.at(tokens, token_index - 1)
+    token && not token.is_punctuation
+  end
+
+  defp next_selectable_index([], _current_index), do: 0
+
+  defp next_selectable_index(selectable_indices, current_index) do
+    Enum.find(selectable_indices, fn index -> index > current_index end) || hd(selectable_indices)
+  end
+
+  defp previous_selectable_index([], _current_index), do: 0
+
+  defp previous_selectable_index(selectable_indices, current_index) do
+    selectable_indices
+    |> Enum.reverse()
+    |> Enum.find(fn index -> index < current_index end) || List.last(selectable_indices)
   end
 end

@@ -419,7 +419,7 @@ defmodule Lex.VocabTest do
       assert seen_state.seen_count == 6
     end
 
-    test "known words are not affected" do
+    test "known words can be toggled back to learning" do
       user = create_user()
       lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
 
@@ -441,12 +441,13 @@ defmodule Lex.VocabTest do
 
       assert known_state.status == "known"
 
-      # Toggle should not change known words
-      assert {:ok, unchanged_state} = Vocab.toggle_learning(user.id, lexeme.id)
-      assert unchanged_state.status == "known"
-      assert unchanged_state.known_at == known_at
-      # Not incremented
-      assert unchanged_state.seen_count == 10
+      # Toggle should move known words back to learning
+      assert {:ok, relearning_state} = Vocab.toggle_learning(user.id, lexeme.id)
+      assert relearning_state.status == "learning"
+      assert relearning_state.learning_since != nil
+      assert relearning_state.known_at == nil
+      # Incremented
+      assert relearning_state.seen_count == 11
     end
 
     test "sets learning_since timestamp when toggling to learning" do
@@ -831,6 +832,92 @@ defmodule Lex.VocabTest do
       assert state.learning_since != nil
       assert DateTime.compare(state.learning_since, before) in [:gt, :eq]
       assert DateTime.compare(state.learning_since, after_mark) in [:lt, :eq]
+    end
+  end
+
+  describe "advance_help_state/2" do
+    test "creates learning state for unseen lexeme" do
+      user = create_user()
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+
+      assert {:ok, state} = Vocab.advance_help_state(user.id, lexeme.id)
+      assert state.status == "learning"
+      assert state.learning_since != nil
+      assert state.known_at == nil
+      assert state.seen_count == 1
+    end
+
+    test "promotes learning lexeme to known" do
+      user = create_user()
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+
+      {:ok, learning_state} =
+        %UserLexemeState{}
+        |> UserLexemeState.changeset(%{
+          user_id: user.id,
+          lexeme_id: lexeme.id,
+          status: "learning",
+          seen_count: 2,
+          learning_since: DateTime.utc_now() |> DateTime.truncate(:second),
+          first_seen_at: DateTime.utc_now() |> DateTime.truncate(:second),
+          last_seen_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        })
+        |> Repo.insert()
+
+      assert {:ok, known_state} = Vocab.advance_help_state(user.id, lexeme.id)
+      assert known_state.id == learning_state.id
+      assert known_state.status == "known"
+      assert known_state.known_at != nil
+      assert known_state.seen_count == 3
+    end
+
+    test "promotes seen lexeme to learning" do
+      user = create_user()
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+
+      {:ok, seen_state} =
+        %UserLexemeState{}
+        |> UserLexemeState.changeset(%{
+          user_id: user.id,
+          lexeme_id: lexeme.id,
+          status: "seen",
+          seen_count: 2,
+          first_seen_at: DateTime.utc_now() |> DateTime.truncate(:second),
+          last_seen_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        })
+        |> Repo.insert()
+
+      assert {:ok, learning_state} = Vocab.advance_help_state(user.id, lexeme.id)
+      assert learning_state.id == seen_state.id
+      assert learning_state.status == "learning"
+      assert learning_state.learning_since != nil
+      assert learning_state.seen_count == 3
+    end
+
+    test "moves known lexeme back to learning" do
+      user = create_user()
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      known_at = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      {:ok, known_state} =
+        %UserLexemeState{}
+        |> UserLexemeState.changeset(%{
+          user_id: user.id,
+          lexeme_id: lexeme.id,
+          status: "known",
+          seen_count: 8,
+          known_at: known_at,
+          first_seen_at: known_at,
+          last_seen_at: known_at
+        })
+        |> Repo.insert()
+
+      assert {:ok, relearning_state} = Vocab.advance_help_state(user.id, lexeme.id)
+      assert relearning_state.id == known_state.id
+      assert relearning_state.status == "learning"
+      assert relearning_state.learning_since != nil
+      assert relearning_state.known_at == nil
+      assert relearning_state.seen_count == 9
     end
   end
 

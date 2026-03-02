@@ -1,88 +1,121 @@
 <div class="reader-container min-h-screen flex flex-col" phx-hook="KeyboardNav" id="reader-container">
   <%= if @loading do %>
-    <div class="reader-loading flex-1 flex items-center justify-center">
-      <p class="text-slate-400 text-lg">Loading...</p>
-    </div>
+      <div class="reader-loading flex-1 flex items-center justify-center">
+        <p class="reader-hint text-lg">Loading...</p>
+      </div>
   <% else %>
-    <%= if @section do %>
-      <div class="section-breadcrumb fixed top-0 left-0 right-0 p-4 flex items-center justify-center gap-4 bg-slate-900/80 backdrop-blur-sm z-10 border-b border-slate-800">
-        <span class="section-title text-sm font-medium text-slate-300"><%= @section.title || "Untitled Section" %></span>
-        <button
-          class="skip-section-btn text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded hover:bg-slate-800 transition-colors flex items-center gap-1"
-          phx-click="skip_section"
-          title="Skip to next section (s key)"
-        >
-          <span>↷</span>
-          <span class="hidden sm:inline">Skip Section</span>
-        </button>
+      <%= if @section do %>
+        <div class="section-breadcrumb reader-chrome reader-chrome-top fixed top-0 left-0 right-0 pt-4 px-4 pb-0 flex flex-col items-start justify-center gap-2 z-10">
+          <div class="w-full reader-header-row flex items-center justify-between gap-4">
+            <div class="reader-word-counts">
+              <span><strong>R</strong> <%= @vocab_counts.read %></span>
+              <span><strong>L</strong> <%= @vocab_counts.learning %></span>
+              <span><strong>K</strong> <%= @vocab_counts.known %></span>
+            </div>
+            <div class="reader-header-meta">
+              <p class="reader-footer-title"><%= @document.title || "Untitled Document" %></p>
+              <p class="reader-footer-author"><%= @document.author || "Unknown Author" %></p>
+            </div>
+            <button
+              class="skip-section-btn text-xs px-2 py-1 rounded transition-colors flex items-center gap-1"
+              phx-click="skip_section"
+              title="Skip to next section (s key)"
+            >
+            <span>↷</span>
+            <span class="hidden sm:inline">Skip Section</span>
+          </button>
+        </div>
+        <!-- Section progress bar -->
+        <div class="reader-progress-bar w-[calc(100%+2rem)] -mx-4 h-px overflow-hidden">
+          <div class="reader-progress-fill h-full transition-all duration-300 ease-out" style={"width: " <> to_string(@section_progress) <> "%"}></div>
+        </div>
       </div>
     <% end %>
 
     <%= if @sentence do %>
-      <div class="reading-area flex-1 flex flex-col items-center justify-center px-4 py-20 gap-6">
-        <!-- Previous sentence (muted, smaller) -->
-        <div class="prev-sentence text-lg text-slate-500 text-center max-w-3xl leading-relaxed">
-          <%= if @prev_sentence do %>
-            <%= @prev_sentence.text %>
-          <% else %>
-            <span class="italic">Start of document</span>
-          <% end %>
-        </div>
-
-        <!-- Current sentence (prominent, full size) -->
-        <div class="current-sentence text-2xl sm:text-3xl md:text-4xl text-slate-100 text-center max-w-4xl leading-relaxed font-medium">
-          <div class="tokens-container flex flex-wrap justify-center gap-x-1 gap-y-2">
-            <%= for {token, index} <- Enum.with_index(@tokens, 1) do %>
-              <% lexeme_state = Map.get(@lexeme_states, token.lexeme_id)
-                 is_focused = @focused_token_index == index
-                 is_learning = lexeme_state && lexeme_state.status == "learning"
-                 token_class = cond do
-                   is_learning -> "token learning cursor-pointer px-1 py-0.5 rounded transition-all duration-200 bg-blue-900/60 hover:bg-blue-800/80 text-blue-200"
-                   is_focused -> "token focused cursor-pointer px-1 py-0.5 rounded transition-all duration-200 ring-2 ring-indigo-400 bg-slate-800/80"
-                   true -> "token cursor-pointer px-1 py-0.5 rounded transition-all duration-200 hover:bg-slate-800/60"
-                 end
-              %>
-              <span
-                class={token_class}
-                phx-click="focus_token"
-                phx-value-token_index={index}
-              >
-                <%= token.surface %>
-              </span>
+        <div class="reading-area flex-1 overflow-hidden px-4">
+          <div class="reader-sentence-stage w-full max-w-4xl h-full mx-auto overflow-hidden">
+            <!-- Previous sentence (muted, smaller) -->
+            <div class="prev-sentence reader-context-sentence reader-context-prev text-lg text-left w-full leading-relaxed flex flex-col justify-end gap-2">
+            <%= for sentence <- @prev_sentences do %>
+              <p><%= sentence.text %></p>
             <% end %>
+            <%= for _ <- List.duplicate(nil, max(0, @context_sentence_count - length(@prev_sentences))) do %>
+              <p class="opacity-0">.</p>
+            <% end %>
+            </div>
+
+            <!-- Current sentence (prominent, full size) -->
+            <div class="current-sentence reader-current-sentence text-2xl sm:text-3xl md:text-4xl text-left w-full leading-relaxed font-medium">
+              <div class="tokens-container flex flex-wrap justify-start gap-x-1 gap-y-2">
+                <%= for {token, index} <- Enum.with_index(@tokens, 1) do %>
+                <% lexeme_state = Map.get(@lexeme_states, token.lexeme_id)
+                   token_status = lexeme_state && lexeme_state.status
+                   is_selectable = not token.is_punctuation
+                   is_focused = @focused_token_index == index
+                   status_class =
+                     cond do
+                       not is_selectable -> "token-punctuation"
+                       token_status == "learning" -> "token-learning"
+                       token_status == "known" -> "token-known"
+                       token_status == "seen" -> "token-unseen"
+                       true -> "token-default"
+                     end
+
+                   focus_class = if is_focused, do: " token-focused", else: ""
+                   pointer_class = if is_selectable, do: "cursor-pointer", else: "cursor-default"
+                    token_class = "token #{status_class}#{focus_class} #{pointer_class} px-1 py-0.5 rounded transition-colors duration-75"
+                  %>
+                <span
+                  class={token_class}
+                  phx-click={if is_selectable, do: "focus_token", else: nil}
+                  phx-value-token_index={if is_selectable, do: index, else: nil}
+                  data-token-index={index}
+                  data-selectable={to_string(is_selectable)}
+                >
+                  <%= token.surface %>
+                </span>
+              <% end %>
+            </div>
+            </div>
+
+            <!-- Next sentence (muted, smaller) -->
+            <div class="next-sentence reader-context-sentence reader-context-next text-lg text-left w-full leading-relaxed flex flex-col gap-2">
+            <%= for sentence <- @next_sentences do %>
+              <p><%= sentence.text %></p>
+            <% end %>
+            <%= for _ <- List.duplicate(nil, max(0, @context_sentence_count - length(@next_sentences))) do %>
+              <p class="opacity-0">.</p>
+            <% end %>
+            </div>
           </div>
         </div>
 
-        <!-- Next sentence (muted, smaller) -->
-        <div class="next-sentence text-lg text-slate-500 text-center max-w-3xl leading-relaxed">
-          <%= if @next_sentence do %>
-            <%= @next_sentence.text %>
-          <% else %>
-            <span class="italic">End of document</span>
+      <div class="reader-controls reader-chrome reader-chrome-bottom fixed bottom-0 left-0 right-0 px-4 pt-0 pb-4 flex flex-col items-start justify-center gap-3">
+        <!-- Document progress bar -->
+        <div class="reader-progress-bar w-[calc(100%+2rem)] -mx-4 h-px overflow-hidden">
+          <div class="reader-progress-fill h-full transition-all duration-300 ease-out" style={"width: " <> to_string(@document_progress) <> "%"}></div>
+        </div>
+        <div class="w-full reader-footer-row flex items-center justify-start gap-3 pt-2">
+          <div class="reader-footer-section"><%= @section.title || "Untitled Section" %></div>
+          <%= if @focused_token_index > 0 do %>
+            <% focused_token = Enum.at(@tokens, @focused_token_index - 1)
+               focused_lexeme_state = focused_token && Map.get(@lexeme_states, focused_token.lexeme_id)
+               is_learning = focused_lexeme_state && focused_lexeme_state.status == "learning"
+            %>
+            <button
+              class={if is_learning, do: "btn-learning-active px-4 py-2 rounded-lg font-medium transition-colors", else: "btn-learning px-4 py-2 rounded-lg font-medium transition-colors"}
+              phx-click="toggle_learning"
+            >
+              <%= if is_learning, do: "Unmark Learning", else: "Mark Learning" %>
+            </button>
+            <span class="keyboard-hint reader-hint text-sm">(or press 'l')</span>
           <% end %>
         </div>
       </div>
-
-      <div class="reader-controls fixed bottom-0 left-0 right-0 p-4 flex items-center justify-center gap-3 bg-slate-900/80 backdrop-blur-sm border-t border-slate-800">
-        <%= if @focused_token_index > 0 do %>
-          <% focused_token = Enum.at(@tokens, @focused_token_index - 1)
-             focused_lexeme_state = focused_token && Map.get(@lexeme_states, focused_token.lexeme_id)
-             is_learning = focused_lexeme_state && focused_lexeme_state.status == "learning"
-          %>
-          <button
-            class={if is_learning, do: "btn-learning-active px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-500 transition-colors shadow-lg shadow-blue-900/20", else: "btn-learning px-4 py-2 bg-slate-700 text-slate-200 rounded-lg font-medium hover:bg-slate-600 transition-colors"}
-            phx-click="toggle_learning"
-          >
-            <%= if is_learning, do: "Unmark Learning", else: "Mark Learning" %>
-          </button>
-          <span class="keyboard-hint text-sm text-slate-400">(or press 'l')</span>
-        <% else %>
-          <p class="hint text-sm text-slate-400">Click a word to mark it as learning</p>
-        <% end %>
-      </div>
     <% else %>
       <div class="empty-state flex-1 flex items-center justify-center">
-        <p class="text-slate-400 text-lg">No content available for this document.</p>
+        <p class="reader-hint text-lg">No content available for this document.</p>
       </div>
     <% end %>
   <% end %>

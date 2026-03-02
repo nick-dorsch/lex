@@ -560,7 +560,7 @@ defmodule LexWeb.ReaderLive.StateTransitionsTest do
       assert count == 0
     end
 
-    test "does not toggle known words", %{conn: conn} do
+    test "can toggle known words back to learning", %{conn: conn} do
       user = create_user()
       document = create_ready_document(user)
       section = create_section(document)
@@ -587,17 +587,103 @@ defmodule LexWeb.ReaderLive.StateTransitionsTest do
       render_hook(view, :key_nav, %{"key" => "w"})
       render_hook(view, :key_nav, %{"key" => "l"})
 
-      # Should still be known
+      # Should now be learning
       state = Repo.one(UserLexemeState)
-      assert state.status == "known"
+      assert state.status == "learning"
+      assert state.known_at == nil
 
-      # Should not have logged any learning events
+      # Should have logged mark_learning event
       count =
         ReadingEvent
-        |> where([e], e.event_type in ["mark_learning", "unmark_learning"])
+        |> where([e], e.event_type == "mark_learning")
         |> Repo.aggregate(:count, :id)
 
-      assert count == 0
+      assert count == 1
+    end
+
+    test "does not toggle punctuation tokens", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "Hola.")
+      lexeme = create_lexeme(%{lemma: ".", normalized_lemma: ".", pos: "PUNCT"})
+
+      create_token(sentence.id, lexeme.id, %{position: 1, surface: ".", is_punctuation: true})
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Click punctuation and try to toggle
+      render_click(view, :focus_token, %{"token_index" => "1"})
+      render_hook(view, :key_nav, %{"key" => "l"})
+
+      assert Repo.aggregate(UserLexemeState, :count, :id) == 0
+    end
+  end
+
+  describe "state transitions on help request (space key)" do
+    test "promotes learning word to known when space is pressed", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "Hola.")
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+
+      create_token(sentence.id, lexeme.id, %{position: 1, surface: "Hola"})
+
+      {:ok, _} =
+        %UserLexemeState{}
+        |> UserLexemeState.changeset(%{
+          user_id: user.id,
+          lexeme_id: lexeme.id,
+          status: "learning",
+          seen_count: 3,
+          learning_since: DateTime.utc_now() |> DateTime.truncate(:second),
+          first_seen_at: DateTime.utc_now() |> DateTime.truncate(:second),
+          last_seen_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        })
+        |> Repo.insert()
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      render_hook(view, :key_nav, %{"key" => "w"})
+      render_hook(view, :key_nav, %{"key" => "space"})
+
+      state = Repo.one(UserLexemeState)
+      assert state.status == "known"
+      assert state.known_at != nil
+    end
+
+    test "moves known word back to learning when space is pressed", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "Hola.")
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+
+      create_token(sentence.id, lexeme.id, %{position: 1, surface: "Hola"})
+
+      {:ok, _} =
+        %UserLexemeState{}
+        |> UserLexemeState.changeset(%{
+          user_id: user.id,
+          lexeme_id: lexeme.id,
+          status: "known",
+          seen_count: 8,
+          known_at: DateTime.utc_now() |> DateTime.truncate(:second),
+          first_seen_at: DateTime.utc_now() |> DateTime.truncate(:second),
+          last_seen_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        })
+        |> Repo.insert()
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      render_hook(view, :key_nav, %{"key" => "w"})
+      render_hook(view, :key_nav, %{"key" => "space"})
+
+      state = Repo.one(UserLexemeState)
+      assert state.status == "learning"
+      assert state.learning_since != nil
+      assert state.known_at == nil
     end
   end
 

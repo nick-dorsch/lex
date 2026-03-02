@@ -92,7 +92,7 @@ defmodule Lex.Vocab do
   2. Checks current state:
      - If no state or `seen`: create/update to `learning`, set `learning_since`
      - If `learning`: revert to `seen` (not `known`)
-     - If `known`: do nothing
+     - If `known`: revert to `learning` for relearning
 
   ## Examples
 
@@ -103,7 +103,7 @@ defmodule Lex.Vocab do
       {:ok, %UserLexemeState{status: "seen"}}
 
       iex> toggle_learning(user_id, lexeme_id_known)
-      {:ok, %UserLexemeState{status: "known"}}  # unchanged
+      {:ok, %UserLexemeState{status: "learning"}}
   """
   @spec toggle_learning(integer(), integer()) ::
           {:ok, UserLexemeState.t()} | {:error, Ecto.Changeset.t()}
@@ -132,14 +132,25 @@ defmodule Lex.Vocab do
         |> Repo.insert()
 
       %{status: "known"} = state ->
-        # Known words are not affected
-        {:ok, state}
+        # Allow relearning known words
+        attrs = %{
+          status: "learning",
+          learning_since: now,
+          known_at: nil,
+          seen_count: state.seen_count + 1,
+          last_seen_at: now
+        }
+
+        state
+        |> UserLexemeState.changeset(attrs)
+        |> Repo.update()
 
       %{status: "learning"} = state ->
         # Revert from learning to seen
         attrs = %{
           status: "seen",
           learning_since: nil,
+          known_at: nil,
           seen_count: state.seen_count + 1,
           last_seen_at: now
         }
@@ -238,6 +249,97 @@ defmodule Lex.Vocab do
         |> UserLexemeState.changeset(attrs)
         |> Repo.update()
     end
+  end
+
+  @doc """
+  Advances a lexeme state for token-level help requests.
+
+  State progression:
+  - `nil` / `seen` -> `learning`
+  - `learning` -> `known`
+  - `known` -> `learning` (for relearning)
+  """
+  @spec advance_help_state(integer(), integer()) ::
+          {:ok, UserLexemeState.t()} | {:error, Ecto.Changeset.t()}
+  def advance_help_state(user_id, lexeme_id) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    existing_state =
+      UserLexemeState
+      |> where(user_id: ^user_id, lexeme_id: ^lexeme_id)
+      |> Repo.one()
+
+    case existing_state do
+      nil ->
+        %UserLexemeState{}
+        |> UserLexemeState.changeset(%{
+          user_id: user_id,
+          lexeme_id: lexeme_id,
+          status: "learning",
+          seen_count: 1,
+          first_seen_at: now,
+          last_seen_at: now,
+          learning_since: now
+        })
+        |> Repo.insert()
+
+      %UserLexemeState{status: "learning"} = state ->
+        state
+        |> UserLexemeState.mark_as_known()
+        |> Repo.update()
+
+      %UserLexemeState{status: "known"} = state ->
+        attrs = %{
+          status: "learning",
+          learning_since: now,
+          known_at: nil,
+          seen_count: state.seen_count + 1,
+          last_seen_at: now
+        }
+
+        state
+        |> UserLexemeState.changeset(attrs)
+        |> Repo.update()
+
+      state ->
+        state
+        |> UserLexemeState.mark_as_learning()
+        |> Repo.update()
+    end
+  end
+
+  @doc """
+  Returns total lexeme counts by status for a user.
+
+  Counts are global across all documents.
+  """
+  @spec get_status_counts(integer()) :: %{
+          known: non_neg_integer(),
+          learning: non_neg_integer(),
+          read: non_neg_integer()
+        }
+  def get_status_counts(user_id) do
+    known_count = count_states_by_status(user_id, "known")
+    learning_count = count_states_by_status(user_id, "learning")
+    read_count = count_all_states(user_id)
+
+    %{
+      known: known_count,
+      learning: learning_count,
+      read: read_count
+    }
+  end
+
+  defp count_states_by_status(user_id, status) do
+    UserLexemeState
+    |> where([s], s.user_id == ^user_id and s.status == ^status)
+    |> Repo.aggregate(:count, :id)
+  end
+
+  defp count_all_states(user_id) do
+    UserLexemeState
+    |> where([s], s.user_id == ^user_id and s.status in ["seen", "learning", "known"])
+    |> Repo.aggregate(:count, :id)
   end
 
   @doc """

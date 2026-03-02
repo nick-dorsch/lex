@@ -270,4 +270,200 @@
   .library-item.imported {
     border-color: rgba(34, 197, 94, 0.3);
   }
+
+  /* Reader View */
+  .reader-container {
+    background-color: transparent;
+    position: fixed;
+    inset: 0;
+    height: 100dvh;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  .reading-area {
+    min-height: 0;
+  }
+
+  .reader-sentence-stage {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr);
+    --reader-context-gap: clamp(0.5rem, 1.5vh, 1rem);
+  }
+
+  .reader-chrome {
+    background-color: rgba(63, 52, 42, 0.88);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+
+  .reader-chrome-top {
+    border-bottom: 1px solid var(--warm-border);
+  }
+
+  .reader-chrome-bottom {
+    border-top: 1px solid var(--warm-border);
+  }
+
+  .section-title {
+    color: var(--warm-text-muted);
+  }
+
+  .skip-section-btn {
+    color: var(--warm-text-subtle);
+  }
+
+  .skip-section-btn:hover {
+    color: var(--warm-text);
+    background-color: rgba(123, 97, 73, 0.28);
+  }
+
+  .reader-progress-bar {
+    background-color: rgba(102, 83, 64, 0.85);
+  }
+
+  .reader-progress-fill {
+    background-color: var(--warm-text);
+  }
+
+  .reader-current-sentence {
+    color: var(--warm-text);
+    align-self: center;
+  }
+
+  .reader-context-sentence {
+    color: rgba(117, 98, 79, 0.72);
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  .reader-context-prev {
+    padding-bottom: var(--reader-context-gap);
+  }
+
+  .reader-context-next {
+    padding-top: var(--reader-context-gap);
+  }
+
+  .reader-hint {
+    color: var(--warm-text-subtle);
+  }
+
+  .reader-header-row,
+  .reader-footer-row {
+    position: relative;
+  }
+
+  .reader-header-meta {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    pointer-events: none;
+    max-width: 60vw;
+  }
+
+  .reader-word-counts {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    color: var(--warm-text-subtle);
+    font-size: 0.75rem;
+    line-height: 1;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+  }
+
+  .reader-footer-section {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    pointer-events: none;
+    max-width: 60vw;
+    color: var(--warm-text-muted);
+    font-size: 0.875rem;
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .reader-footer-title {
+    color: var(--warm-text);
+    font-size: 0.875rem;
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .reader-footer-author {
+    color: var(--warm-text-subtle);
+    font-size: 0.75rem;
+    line-height: 1.1;
+    margin-top: 0.1rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .token-default:hover {
+    background-color: rgba(123, 97, 73, 0.28);
+  }
+
+  .token-punctuation {
+    opacity: 0.78;
+  }
+
+  .token-unseen {
+    box-shadow: inset 0 0 0 1px rgba(123, 97, 73, 0.45);
+    background-color: rgba(123, 97, 73, 0.14);
+  }
+
+  .token-unseen:hover {
+    background-color: rgba(123, 97, 73, 0.22);
+  }
+
+  .token-focused {
+    background-color: rgba(102, 83, 64, 0.48);
+    box-shadow: inset 0 0 0 2px rgba(221, 176, 109, 0.75);
+  }
+
+  .token-learning {
+    background-color: rgba(199, 141, 59, 0.28);
+    color: var(--warm-text);
+  }
+
+  .token-learning:hover {
+    background-color: rgba(199, 141, 59, 0.38);
+  }
+
+  .token-known {
+    background-color: rgba(99, 170, 120, 0.24);
+    color: var(--warm-text);
+  }
+
+  .token-known:hover {
+    background-color: rgba(99, 170, 120, 0.34);
+  }
+
+  .btn-learning {
+    background-color: #6e5b49;
+    color: var(--warm-text);
+  }
+
+  .btn-learning:hover {
+    background-color: #816a54;
+  }
+
+  .btn-learning-active {
+    background-color: var(--warm-gold);
+    color: #362713;
+    box-shadow: 0 6px 18px rgba(199, 141, 59, 0.28);
+  }
+
+  .btn-learning-active:hover {
+    background-color: var(--warm-gold-soft);
+  }
 }

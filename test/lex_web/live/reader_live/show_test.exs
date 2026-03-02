@@ -77,6 +77,31 @@ defmodule LexWeb.ReaderLive.ShowTest do
       assert html =~ "sentence"
       assert html =~ "untitled"
     end
+
+    test "j navigation advances by one sentence", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+
+      sentence_1 = create_sentence(section, 1, "First sentence.")
+      sentence_2 = create_sentence(section, 2, "Second sentence.")
+      sentence_3 = create_sentence(section, 3, "Third sentence.")
+
+      create_tokens_for_sentence(sentence_1, ["First", "sentence", "."])
+      create_tokens_for_sentence(sentence_2, ["Second", "sentence", "."])
+      create_tokens_for_sentence(sentence_3, ["Third", "sentence", "."])
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      current_sentence_html = view |> element(".current-sentence") |> render()
+      assert current_sentence_html =~ "First"
+      refute current_sentence_html =~ "Second"
+
+      _html = render_hook(view, "key_nav", %{"key" => "j"})
+      current_sentence_html = view |> element(".current-sentence") |> render()
+      assert current_sentence_html =~ "Second"
+      refute current_sentence_html =~ "Third"
+    end
   end
 
   # Helper functions for creating test data
