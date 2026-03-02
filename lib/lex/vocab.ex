@@ -439,4 +439,265 @@ defmodule Lex.Vocab do
       {:ok, count}
     end
   end
+
+  @doc """
+  Looks up a cached LLM help response.
+
+  Returns `{:ok, LlmHelpRequest.t()}` if a cached response exists with response_text IS NOT NULL.
+  Returns `{:error, :not_found}` if no cached response is found.
+
+  ## Examples
+
+      iex> get_cached_llm_response(1, 2, "en")
+      {:ok, %LlmHelpRequest{response_text: "This word means..."}}
+
+      iex> get_cached_llm_response(1, 2, "en")
+      {:error, :not_found}
+  """
+  @spec get_cached_llm_response(integer(), integer(), String.t()) ::
+          {:ok, LlmHelpRequest.t()} | {:error, :not_found}
+  def get_cached_llm_response(sentence_id, token_id, response_language) do
+    LlmHelpRequest
+    |> where(
+      [r],
+      r.sentence_id == ^sentence_id and
+        r.token_id == ^token_id and
+        r.response_language == ^response_language and
+        not is_nil(r.response_text)
+    )
+    |> order_by(desc: :inserted_at)
+    |> limit(1)
+    |> Repo.one()
+    |> case do
+      nil -> {:error, :not_found}
+      request -> {:ok, request}
+    end
+  end
+
+  @doc """
+  Builds the system and user prompts for an LLM help request.
+
+  Takes the token, sentence, document, and user structs to construct context-aware
+  prompts for the LLM to explain the word.
+
+  ## Examples
+
+      iex> build_llm_prompt(token, sentence, document, user)
+      {system_message, user_message}
+  """
+  @spec build_llm_prompt(
+          Token.t(),
+          Lex.Text.Sentence.t(),
+          Lex.Library.Document.t(),
+          Lex.Accounts.User.t()
+        ) :: {String.t(), String.t()}
+  def build_llm_prompt(token, sentence, document, user) do
+    system_message = "You are a helpful language learning assistant. Explain words briefly."
+
+    user_message = """
+    Word: #{token.surface} (lemma: #{token.lemma}, pos: #{token.pos})
+    Sentence context: #{sentence.text}
+    Document: #{document.title} by #{document.author}
+    Respond in #{user.primary_language}
+    """
+
+    {system_message, user_message}
+  end
+
+  @doc """
+  Requests LLM help for a token, with caching and streaming support.
+
+  First checks cache for existing response. If found, returns cached response.
+  If not cached, creates a new request record, builds the prompt, and starts
+  streaming completion from the LLM.
+
+  Returns `{:ok, request_id}` immediately (streaming continues in background).
+  Returns `{:error, reason}` on immediate failures (not configured, etc.).
+
+  ## Examples
+
+      iex> request_llm_help(user_id, document_id, sentence_id, token_id, callback)
+      {:ok, 123}
+
+      iex> request_llm_help(user_id, document_id, sentence_id, token_id, callback)
+      {:error, :not_configured}
+  """
+  @spec request_llm_help(integer(), integer(), integer(), integer(), function()) ::
+          {:ok, integer()} | {:error, atom()}
+  def request_llm_help(user_id, document_id, sentence_id, token_id, stream_callback)
+      when is_function(stream_callback, 1) do
+    # Get user for response language preference
+    user = Repo.get(Lex.Accounts.User, user_id)
+
+    if is_nil(user) do
+      {:error, :user_not_found}
+    else
+      response_language = user.primary_language
+
+      # Check cache first
+      case get_cached_llm_response(sentence_id, token_id, response_language) do
+        {:ok, cached_request} ->
+          # Return cached response immediately
+          stream_callback.({:cached, cached_request.response_text})
+          {:ok, cached_request.id}
+
+        {:error, :not_found} ->
+          # Create request record and start streaming
+          do_request_llm_help(
+            user_id,
+            document_id,
+            sentence_id,
+            token_id,
+            response_language,
+            stream_callback
+          )
+      end
+    end
+  end
+
+  defp do_request_llm_help(
+         user_id,
+         document_id,
+         sentence_id,
+         token_id,
+         response_language,
+         stream_callback
+       ) do
+    start_time = System.monotonic_time(:millisecond)
+
+    # Get token, sentence, and document with necessary data
+    token =
+      Token
+      |> where([t], t.id == ^token_id and t.sentence_id == ^sentence_id)
+      |> Repo.one()
+
+    if is_nil(token) do
+      {:error, :token_not_found}
+    else
+      sentence = Repo.get(Lex.Text.Sentence, sentence_id)
+      document = Repo.get(Lex.Library.Document, document_id)
+      user = Repo.get(Lex.Accounts.User, user_id)
+
+      if is_nil(sentence) or is_nil(document) or is_nil(user) do
+        {:error, :required_data_not_found}
+      else
+        # Create pending request record
+        {:ok, request} =
+          create_pending_llm_request(
+            user_id,
+            document_id,
+            sentence_id,
+            token_id,
+            response_language
+          )
+
+        # Build prompt
+        {system_msg, user_msg} = build_llm_prompt(token, sentence, document, user)
+
+        messages = [
+          %{role: "system", content: system_msg},
+          %{role: "user", content: user_msg}
+        ]
+
+        # Create wrapper callback that updates the request on completion
+        wrapper_callback = fn event ->
+          handle_stream_event(event, request.id, start_time, stream_callback)
+        end
+
+        # Start streaming
+        case Lex.LLM.Client.stream_chat_completion(messages, wrapper_callback) do
+          {:ok, _task} ->
+            {:ok, request.id}
+
+          {:error, :not_configured} = error ->
+            # Update request to reflect failure
+            finalize_llm_request(request.id, nil, nil, nil, nil)
+            error
+        end
+      end
+    end
+  end
+
+  defp create_pending_llm_request(user_id, document_id, sentence_id, token_id, response_language) do
+    provider = Application.get_env(:lex, :llm_provider, "openai")
+    model = Application.get_env(:lex, :llm_model, "gpt-4")
+
+    attrs = %{
+      user_id: user_id,
+      document_id: document_id,
+      sentence_id: sentence_id,
+      token_id: token_id,
+      request_type: "token",
+      response_language: response_language,
+      provider: provider,
+      model: model,
+      response_text: nil
+    }
+
+    %LlmHelpRequest{}
+    |> LlmHelpRequest.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  defp handle_stream_event({:chunk, content}, _request_id, _start_time, stream_callback) do
+    stream_callback.({:chunk, content})
+  end
+
+  defp handle_stream_event({:done, stats}, _request_id, _start_time, stream_callback) do
+    # Note: finalize_llm_request/5 should be called separately with the full response
+    # after streaming completes, using the accumulated response text
+    stream_callback.({:done, stats})
+
+    :ok
+  end
+
+  defp handle_stream_event({:error, reason}, _request_id, _start_time, stream_callback) do
+    stream_callback.({:error, reason})
+    :error
+  end
+
+  @doc """
+  Finalizes an LLM help request with the full response data.
+
+  Updates the request record with response text, latency, and token counts.
+
+  ## Examples
+
+      iex> finalize_llm_request(request_id, "This word means...", 1234, 10, 25)
+      {:ok, %LlmHelpRequest{}}
+
+      iex> finalize_llm_request(999999, "text", 100, 10, 20)
+      {:error, :not_found}
+  """
+  @spec finalize_llm_request(
+          integer(),
+          String.t() | nil,
+          integer() | nil,
+          integer() | nil,
+          integer() | nil
+        ) :: {:ok, LlmHelpRequest.t()} | {:error, :not_found}
+  def finalize_llm_request(
+        request_id,
+        response_text,
+        latency_ms,
+        prompt_tokens,
+        completion_tokens
+      ) do
+    case Repo.get(LlmHelpRequest, request_id) do
+      nil ->
+        {:error, :not_found}
+
+      request ->
+        attrs = %{
+          response_text: response_text,
+          latency_ms: latency_ms,
+          prompt_tokens: prompt_tokens,
+          completion_tokens: completion_tokens
+        }
+
+        request
+        |> LlmHelpRequest.changeset(attrs)
+        |> Repo.update()
+    end
+  end
 end

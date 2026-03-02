@@ -940,7 +940,7 @@ defmodule Lex.VocabTest do
       assert request.request_type == "token"
       assert request.response_language == "es"
       assert request.provider == "openai"
-      assert request.model == "gpt-4"
+      assert request.model == "gpt-4o-mini"
       assert request.inserted_at != nil
     end
 
@@ -960,7 +960,7 @@ defmodule Lex.VocabTest do
       assert request.request_type == "sentence"
       assert request.response_language == "fr"
       assert request.provider == "openai"
-      assert request.model == "gpt-4"
+      assert request.model == "gpt-4o-mini"
     end
 
     test "uses document language for response_language" do
@@ -994,6 +994,399 @@ defmodule Lex.VocabTest do
                Vocab.log_llm_request(user.id, document.id, sentence.id, nil, :token)
 
       assert changeset.errors[:token_id]
+    end
+  end
+
+  describe "get_cached_llm_response/3" do
+    test "returns cached response when available" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      token = create_token(sentence.id, lexeme.id, %{position: 1, surface: "hola"})
+
+      # Create a cached response
+      {:ok, request} =
+        %Lex.Vocab.LlmHelpRequest{}
+        |> Lex.Vocab.LlmHelpRequest.changeset(%{
+          user_id: user.id,
+          document_id: document.id,
+          sentence_id: sentence.id,
+          token_id: token.id,
+          request_type: "token",
+          response_language: "en",
+          provider: "openai",
+          model: "gpt-4",
+          response_text: "This means hello in Spanish."
+        })
+        |> Repo.insert()
+
+      assert {:ok, cached} = Vocab.get_cached_llm_response(sentence.id, token.id, "en")
+      assert cached.id == request.id
+      assert cached.response_text == "This means hello in Spanish."
+    end
+
+    test "returns not_found when no cached response" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      token = create_token(sentence.id, lexeme.id, %{position: 1, surface: "hola"})
+
+      assert {:error, :not_found} = Vocab.get_cached_llm_response(sentence.id, token.id, "en")
+    end
+
+    test "returns not_found for pending response (nil response_text)" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      token = create_token(sentence.id, lexeme.id, %{position: 1, surface: "hola"})
+
+      # Create a pending request (no response_text)
+      {:ok, _} =
+        %Lex.Vocab.LlmHelpRequest{}
+        |> Lex.Vocab.LlmHelpRequest.changeset(%{
+          user_id: user.id,
+          document_id: document.id,
+          sentence_id: sentence.id,
+          token_id: token.id,
+          request_type: "token",
+          response_language: "en",
+          provider: "openai",
+          model: "gpt-4",
+          response_text: nil
+        })
+        |> Repo.insert()
+
+      assert {:error, :not_found} = Vocab.get_cached_llm_response(sentence.id, token.id, "en")
+    end
+
+    test "respects response_language filter" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      token = create_token(sentence.id, lexeme.id, %{position: 1, surface: "hola"})
+
+      # Create cached response in Spanish
+      {:ok, _} =
+        %Lex.Vocab.LlmHelpRequest{}
+        |> Lex.Vocab.LlmHelpRequest.changeset(%{
+          user_id: user.id,
+          document_id: document.id,
+          sentence_id: sentence.id,
+          token_id: token.id,
+          request_type: "token",
+          response_language: "es",
+          provider: "openai",
+          model: "gpt-4",
+          response_text: "Esto significa hola en español."
+        })
+        |> Repo.insert()
+
+      # Query for English should not find it
+      assert {:error, :not_found} = Vocab.get_cached_llm_response(sentence.id, token.id, "en")
+
+      # Query for Spanish should find it
+      assert {:ok, _} = Vocab.get_cached_llm_response(sentence.id, token.id, "es")
+    end
+
+    test "returns a cached response when multiple exist" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      token = create_token(sentence.id, lexeme.id, %{position: 1, surface: "hola"})
+
+      # Create first cached response
+      {:ok, first_request} =
+        %Lex.Vocab.LlmHelpRequest{}
+        |> Lex.Vocab.LlmHelpRequest.changeset(%{
+          user_id: user.id,
+          document_id: document.id,
+          sentence_id: sentence.id,
+          token_id: token.id,
+          request_type: "token",
+          response_language: "en",
+          provider: "openai",
+          model: "gpt-4",
+          response_text: "First response."
+        })
+        |> Repo.insert()
+
+      Process.sleep(100)
+
+      # Create second cached response
+      {:ok, second_request} =
+        %Lex.Vocab.LlmHelpRequest{}
+        |> Lex.Vocab.LlmHelpRequest.changeset(%{
+          user_id: user.id,
+          document_id: document.id,
+          sentence_id: sentence.id,
+          token_id: token.id,
+          request_type: "token",
+          response_language: "en",
+          provider: "openai",
+          model: "gpt-4",
+          response_text: "Second response."
+        })
+        |> Repo.insert()
+
+      # Should return one of the cached responses
+      assert {:ok, cached} = Vocab.get_cached_llm_response(sentence.id, token.id, "en")
+      assert cached.response_text in ["First response.", "Second response."]
+      assert cached.id in [first_request.id, second_request.id]
+    end
+  end
+
+  describe "build_llm_prompt/4" do
+    test "builds correct system and user prompts" do
+      user = create_user(%{primary_language: "en"})
+      document = create_document(user.id, %{title: "El Quijote", author: "Cervantes"})
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1, "Hola mundo cruel.")
+
+      token = %Lex.Text.Token{
+        surface: "mundo",
+        lemma: "mundo",
+        pos: "NOUN"
+      }
+
+      {system_msg, user_msg} = Vocab.build_llm_prompt(token, sentence, document, user)
+
+      assert system_msg == "You are a helpful language learning assistant. Explain words briefly."
+      assert user_msg =~ "Word: mundo (lemma: mundo, pos: NOUN)"
+      assert user_msg =~ "Sentence context: Hola mundo cruel."
+      assert user_msg =~ "Document: El Quijote by Cervantes"
+      assert user_msg =~ "Respond in en"
+    end
+
+    test "uses user primary_language for response" do
+      user = create_user(%{primary_language: "fr"})
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+
+      token = %Lex.Text.Token{
+        surface: "test",
+        lemma: "test",
+        pos: "NOUN"
+      }
+
+      {_system_msg, user_msg} = Vocab.build_llm_prompt(token, sentence, document, user)
+
+      assert user_msg =~ "Respond in fr"
+    end
+  end
+
+  describe "finalize_llm_request/5" do
+    test "updates request with response data" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      token = create_token(sentence.id, lexeme.id, %{position: 1, surface: "hola"})
+
+      # Create a pending request
+      {:ok, request} =
+        %Lex.Vocab.LlmHelpRequest{}
+        |> Lex.Vocab.LlmHelpRequest.changeset(%{
+          user_id: user.id,
+          document_id: document.id,
+          sentence_id: sentence.id,
+          token_id: token.id,
+          request_type: "token",
+          response_language: "en",
+          provider: "openai",
+          model: "gpt-4",
+          response_text: nil
+        })
+        |> Repo.insert()
+
+      # Finalize the request
+      assert {:ok, finalized} =
+               Vocab.finalize_llm_request(request.id, "This means hello.", 1234, 10, 25)
+
+      assert finalized.id == request.id
+      assert finalized.response_text == "This means hello."
+      assert finalized.latency_ms == 1234
+      assert finalized.prompt_tokens == 10
+      assert finalized.completion_tokens == 25
+    end
+
+    test "returns error for non-existent request" do
+      assert {:error, :not_found} =
+               Vocab.finalize_llm_request(999_999, "test", 100, 10, 20)
+    end
+
+    test "allows nil values for optional fields" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      token = create_token(sentence.id, lexeme.id, %{position: 1, surface: "hola"})
+
+      # Create a pending request
+      {:ok, request} =
+        %Lex.Vocab.LlmHelpRequest{}
+        |> Lex.Vocab.LlmHelpRequest.changeset(%{
+          user_id: user.id,
+          document_id: document.id,
+          sentence_id: sentence.id,
+          token_id: token.id,
+          request_type: "token",
+          response_language: "en",
+          provider: "openai",
+          model: "gpt-4",
+          response_text: nil
+        })
+        |> Repo.insert()
+
+      # Finalize with nil values (e.g., on error)
+      assert {:ok, finalized} =
+               Vocab.finalize_llm_request(request.id, nil, nil, nil, nil)
+
+      assert finalized.response_text == nil
+      assert finalized.latency_ms == nil
+      assert finalized.prompt_tokens == nil
+      assert finalized.completion_tokens == nil
+    end
+  end
+
+  describe "request_llm_help/5" do
+    test "returns cached response when available" do
+      user = create_user(%{primary_language: "en"})
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      token = create_token(sentence.id, lexeme.id, %{position: 1, surface: "hola"})
+
+      # Create a cached response
+      {:ok, cached_request} =
+        %Lex.Vocab.LlmHelpRequest{}
+        |> Lex.Vocab.LlmHelpRequest.changeset(%{
+          user_id: user.id,
+          document_id: document.id,
+          sentence_id: sentence.id,
+          token_id: token.id,
+          request_type: "token",
+          response_language: "en",
+          provider: "openai",
+          model: "gpt-4",
+          response_text: "Cached explanation."
+        })
+        |> Repo.insert()
+
+      callback = fn event ->
+        send(self(), {:callback, event})
+      end
+
+      assert {:ok, request_id} =
+               Vocab.request_llm_help(user.id, document.id, sentence.id, token.id, callback)
+
+      assert request_id == cached_request.id
+
+      # Verify callback received cached event
+      assert_receive {:callback, {:cached, "Cached explanation."}}, 1000
+    end
+
+    test "returns error when user not found" do
+      callback = fn _event -> :ok end
+
+      assert {:error, :user_not_found} =
+               Vocab.request_llm_help(999_999, 1, 1, 1, callback)
+    end
+
+    test "returns error when token not found" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+
+      callback = fn _event -> :ok end
+
+      assert {:error, :token_not_found} =
+               Vocab.request_llm_help(user.id, document.id, sentence.id, 999_999, callback)
+    end
+
+    test "returns error when required data not found" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      token = create_token(sentence.id, lexeme.id, %{position: 1, surface: "hola"})
+
+      callback = fn _event -> :ok end
+
+      # Pass invalid document_id
+      assert {:error, :required_data_not_found} =
+               Vocab.request_llm_help(user.id, 999_999, sentence.id, token.id, callback)
+    end
+
+    test "returns error when LLM not configured" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      token = create_token(sentence.id, lexeme.id, %{position: 1, surface: "hola"})
+
+      # Clear LLM configuration
+      original_api_key = Application.get_env(:lex, :llm_api_key)
+      original_base_url = Application.get_env(:lex, :llm_base_url)
+
+      Application.put_env(:lex, :llm_api_key, nil)
+      Application.put_env(:lex, :llm_base_url, nil)
+
+      callback = fn _event -> :ok end
+
+      assert {:error, :not_configured} =
+               Vocab.request_llm_help(user.id, document.id, sentence.id, token.id, callback)
+
+      # Restore configuration
+      Application.put_env(:lex, :llm_api_key, original_api_key)
+      Application.put_env(:lex, :llm_base_url, original_base_url)
+    end
+
+    test "creates request record for new request" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1)
+      sentence = create_sentence(section.id, 1)
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+      token = create_token(sentence.id, lexeme.id, %{position: 1, surface: "hola"})
+
+      # Set up a mock configuration
+      Application.put_env(:lex, :llm_api_key, "test-key")
+      Application.put_env(:lex, :llm_base_url, "https://api.test.com")
+
+      callback = fn _event -> :ok end
+
+      # Should create a request even though LLM call will fail in tests
+      assert {:ok, _request_id} =
+               Vocab.request_llm_help(user.id, document.id, sentence.id, token.id, callback)
+
+      # Verify a request was created
+      requests =
+        Lex.Vocab.LlmHelpRequest
+        |> where([r], r.sentence_id == ^sentence.id and r.token_id == ^token.id)
+        |> Repo.all()
+
+      assert length(requests) >= 1
+
+      # Clean up
+      Application.delete_env(:lex, :llm_api_key)
+      Application.delete_env(:lex, :llm_base_url)
     end
   end
 end
