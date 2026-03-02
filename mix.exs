@@ -40,6 +40,8 @@ defmodule Lex.MixProject do
       {:bupe, "~> 0.6"},
       {:sweet_xml, "~> 0.7"},
       {:floki, "~> 0.34"},
+      {:earmark, "~> 1.4"},
+      {:html_sanitize_ex, "~> 1.4"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
       {:meck, "~> 0.9", only: :test},

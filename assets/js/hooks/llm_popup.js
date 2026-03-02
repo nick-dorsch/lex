@@ -1,9 +1,6 @@
 export default {
   mounted() {
     this.contentEl = this.el.querySelector('.llm-popup-content');
-    this.responseEl = this.el.querySelector('.llm-popup-response');
-    this.loadingEl = this.el.querySelector('.llm-popup-loading');
-    this.errorEl = this.el.querySelector('.llm-popup-error');
     this.lastManualScroll = 0;
     this.scrollThresholdMs = 2000;
 
@@ -18,16 +15,16 @@ export default {
       this.contentEl.addEventListener('scroll', this.handleContentScroll);
     }
 
-    this.handleEvent('llm_chunk', ({ content }) => {
-      this.appendContent(content);
+    this.handleEvent('llm_chunk', () => {
+      if (this.shouldAutoScroll()) {
+        this.scrollToBottom();
+      }
     });
 
     this.handleEvent('llm_done', () => {
-      this.hideLoading();
-    });
-
-    this.handleEvent('llm_error', ({ message }) => {
-      this.showError(message);
+      if (this.shouldAutoScroll()) {
+        this.scrollToBottom();
+      }
     });
 
     this.keyHandler = (e) => {
@@ -43,9 +40,10 @@ export default {
 
   updated() {
     this.contentEl = this.el.querySelector('.llm-popup-content');
-    this.responseEl = this.el.querySelector('.llm-popup-response');
-    this.loadingEl = this.el.querySelector('.llm-popup-loading');
-    this.errorEl = this.el.querySelector('.llm-popup-error');
+
+    if (this.shouldAutoScroll()) {
+      this.scrollToBottom();
+    }
   },
 
   destroyed() {
@@ -75,34 +73,9 @@ export default {
     return timeSinceManualScroll > this.scrollThresholdMs;
   },
 
-  appendContent(content) {
-    if (!this.responseEl) return;
-
-    const textNode = document.createTextNode(content);
-    this.responseEl.appendChild(textNode);
-
-    if (this.shouldAutoScroll()) {
-      this.scrollToBottom();
-    }
-  },
-
   scrollToBottom() {
     if (this.contentEl) {
       this.contentEl.scrollTop = this.contentEl.scrollHeight;
     }
-  },
-
-  hideLoading() {
-    if (this.loadingEl) {
-      this.loadingEl.style.display = 'none';
-    }
-  },
-
-  showError(message) {
-    if (this.errorEl) {
-      this.errorEl.textContent = message;
-      this.errorEl.style.display = 'block';
-    }
-    this.hideLoading();
   }
 };

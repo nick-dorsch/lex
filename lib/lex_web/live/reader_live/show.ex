@@ -68,6 +68,7 @@ defmodule LexWeb.ReaderLive.Show do
            llm_loading: false,
            llm_error: nil,
            llm_content: "",
+           llm_content_html: "",
            current_llm_request_id: nil
          )}
 
@@ -474,6 +475,7 @@ defmodule LexWeb.ReaderLive.Show do
      |> assign(
        llm_popup_visible: false,
        llm_content: "",
+       llm_content_html: "",
        llm_error: nil,
        current_llm_request_id: nil,
        llm_loading: false
@@ -516,6 +518,7 @@ defmodule LexWeb.ReaderLive.Show do
            llm_popup_visible: true,
            llm_loading: false,
            llm_content: "Sentence-level help coming soon...",
+           llm_content_html: render_markdown_html("Sentence-level help coming soon..."),
            current_llm_request_id: request.id
          )}
 
@@ -575,6 +578,7 @@ defmodule LexWeb.ReaderLive.Show do
                    llm_popup_visible: true,
                    llm_loading: true,
                    llm_content: "",
+                   llm_content_html: "",
                    llm_error: nil,
                    current_llm_request_id: request_id,
                    current_llm_start_time: start_time
@@ -614,7 +618,10 @@ defmodule LexWeb.ReaderLive.Show do
 
     {:noreply,
      socket
-     |> assign(llm_content: new_content)
+     |> assign(
+       llm_content: new_content,
+       llm_content_html: render_markdown_html(new_content)
+     )
      |> push_event("llm_chunk", %{content: content, request_id: request_id})}
   end
 
@@ -627,6 +634,7 @@ defmodule LexWeb.ReaderLive.Show do
      socket
      |> assign(
        llm_content: response_text,
+       llm_content_html: render_markdown_html(response_text),
        llm_loading: false
      )
      |> push_event("llm_chunk", %{content: response_text, request_id: request_id})
@@ -838,5 +846,13 @@ defmodule LexWeb.ReaderLive.Show do
     selectable_indices
     |> Enum.reverse()
     |> Enum.find(fn index -> index < current_index end) || List.last(selectable_indices)
+  end
+
+  defp render_markdown_html(content) when content in [nil, ""], do: ""
+
+  defp render_markdown_html(content) when is_binary(content) do
+    content
+    |> Earmark.as_html!()
+    |> HtmlSanitizeEx.basic_html()
   end
 end

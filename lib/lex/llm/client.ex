@@ -116,18 +116,30 @@ defmodule Lex.LLM.Client do
              uri.host,
              uri.port || 443,
              transport_opts: [timeout: timeout]
-           ),
-         {:ok, conn, _request_ref} <-
-           Mint.HTTP.request(
+           ) do
+      request_sent_at_ms = System.monotonic_time(:millisecond)
+
+      case Mint.HTTP.request(
              conn,
              "POST",
              uri.path || "/",
              headers,
              body
            ) do
-      result = stream_response(conn, callback, "", [], timeout)
-      Mint.HTTP.close(conn)
-      result
+        {:ok, conn, _request_ref} ->
+          result =
+            stream_response(conn, callback, "", [], timeout, request_sent_at_ms, false)
+
+          Mint.HTTP.close(conn)
+          result
+
+        {:error, conn, reason} ->
+          Mint.HTTP.close(conn)
+          callback.({:error, {:network_error, reason}})
+
+        {:error, reason} ->
+          callback.({:error, {:network_error, reason}})
+      end
     else
       {:error, conn, reason} ->
         Mint.HTTP.close(conn)
@@ -138,23 +150,55 @@ defmodule Lex.LLM.Client do
     end
   end
 
-  defp stream_response(conn, callback, buffer, chunks_acc, timeout) do
+  defp stream_response(
+         conn,
+         callback,
+         buffer,
+         chunks_acc,
+         timeout,
+         request_sent_at_ms,
+         first_token_logged
+       ) do
     receive do
       message ->
         case Mint.HTTP.stream(conn, message) do
           :unknown ->
             # Not a Mint message, continue
-            stream_response(conn, callback, buffer, chunks_acc, timeout)
+            stream_response(
+              conn,
+              callback,
+              buffer,
+              chunks_acc,
+              timeout,
+              request_sent_at_ms,
+              first_token_logged
+            )
 
           {:ok, conn, responses} ->
-            {new_conn, new_buffer, new_chunks_acc, done} =
-              process_responses(conn, responses, buffer, chunks_acc, callback)
+            {new_conn, new_buffer, new_chunks_acc, done, new_first_token_logged} =
+              process_responses(
+                conn,
+                responses,
+                buffer,
+                chunks_acc,
+                callback,
+                request_sent_at_ms,
+                first_token_logged
+              )
 
             if done do
               send_completion_stats(callback, new_chunks_acc)
               :ok
             else
-              stream_response(new_conn, callback, new_buffer, new_chunks_acc, timeout)
+              stream_response(
+                new_conn,
+                callback,
+                new_buffer,
+                new_chunks_acc,
+                timeout,
+                request_sent_at_ms,
+                new_first_token_logged
+              )
             end
 
           {:error, conn, error, _responses} ->
@@ -170,72 +214,141 @@ defmodule Lex.LLM.Client do
     end
   end
 
-  defp process_responses(conn, responses, buffer, chunks_acc, callback) do
-    Enum.reduce(responses, {conn, buffer, chunks_acc, false}, fn response, acc ->
-      {conn, buf, chunks, done} = acc
+  defp process_responses(
+         conn,
+         responses,
+         buffer,
+         chunks_acc,
+         callback,
+         request_sent_at_ms,
+         first_token_logged
+       ) do
+    Enum.reduce(responses, {conn, buffer, chunks_acc, false, first_token_logged}, fn response,
+                                                                                     acc ->
+      {conn, buf, chunks, done, token_logged} = acc
 
       case response do
         {:status, _ref, status} when status >= 400 ->
-          {conn, buf, chunks, {:error, {:http_error, status, nil}}}
+          {conn, buf, chunks, {:error, {:http_error, status, nil}}, token_logged}
 
         {:headers, _ref, _headers} ->
-          {conn, buf, chunks, done}
+          {conn, buf, chunks, done, token_logged}
 
         {:data, _ref, data} ->
           new_buf = buf <> data
-          {new_buf, new_chunks, is_done} = process_sse_data(new_buf, chunks, callback)
-          {conn, new_buf, new_chunks, is_done or done}
+
+          {new_buf, new_chunks, is_done, new_token_logged} =
+            process_sse_data(new_buf, chunks, callback, request_sent_at_ms, token_logged)
+
+          {conn, new_buf, new_chunks, is_done or done, new_token_logged}
 
         {:done, _ref} ->
-          {conn, buf, chunks, true}
+          {conn, buf, chunks, true, token_logged}
 
         _ ->
-          {conn, buf, chunks, done}
+          {conn, buf, chunks, done, token_logged}
       end
     end)
     |> case do
-      {conn, buf, chunks, {:error, reason}} ->
+      {conn, buf, chunks, {:error, reason}, token_logged} ->
         callback.({:error, reason})
-        {conn, buf, chunks, true}
+        {conn, buf, chunks, true, token_logged}
 
       other ->
         other
     end
   end
 
-  defp process_sse_data(buffer, chunks_acc, callback) do
+  defp process_sse_data(buffer, chunks_acc, callback, request_sent_at_ms, first_token_logged) do
     buffer
     |> String.split("\n\n", trim: false)
-    |> process_sse_lines([], chunks_acc, callback)
+    |> process_sse_lines([], chunks_acc, callback, request_sent_at_ms, first_token_logged)
   end
 
-  defp process_sse_lines([], remaining, chunks_acc, _callback),
-    do: {Enum.join(remaining, "\n\n"), chunks_acc, false}
+  defp process_sse_lines(
+         [],
+         remaining,
+         chunks_acc,
+         _callback,
+         _request_sent_at_ms,
+         first_token_logged
+       ),
+       do: {Enum.join(remaining, "\n\n"), chunks_acc, false, first_token_logged}
 
-  defp process_sse_lines([last], [_ | _] = remaining, chunks_acc, _callback) do
+  defp process_sse_lines(
+         [last],
+         [_ | _] = remaining,
+         chunks_acc,
+         _callback,
+         _request_sent_at_ms,
+         first_token_logged
+       ) do
     # Last incomplete chunk
-    {Enum.join(remaining ++ [last], "\n\n"), chunks_acc, false}
+    {Enum.join(remaining ++ [last], "\n\n"), chunks_acc, false, first_token_logged}
   end
 
-  defp process_sse_lines([_line], [], chunks_acc, _callback) do
+  defp process_sse_lines(
+         [_line],
+         [],
+         chunks_acc,
+         _callback,
+         _request_sent_at_ms,
+         first_token_logged
+       ) do
     # Single line that might be incomplete
-    {"", chunks_acc, false}
+    {"", chunks_acc, false, first_token_logged}
   end
 
-  defp process_sse_lines([line | rest], remaining, chunks_acc, callback) do
+  defp process_sse_lines(
+         [line | rest],
+         remaining,
+         chunks_acc,
+         callback,
+         request_sent_at_ms,
+         first_token_logged
+       ) do
     case parse_sse_line(line) do
       :done ->
-        {"", chunks_acc, true}
+        {"", chunks_acc, true, first_token_logged}
 
       {:chunk, content} ->
+        should_log_ttft = not first_token_logged and String.trim(content) != ""
+
+        if should_log_ttft do
+          ttft_ms = System.monotonic_time(:millisecond) - request_sent_at_ms
+          Logger.info("LLM first token latency: #{ttft_ms}ms")
+        end
+
         callback.({:chunk, content})
-        process_sse_lines(rest, remaining, [content | chunks_acc], callback)
+
+        process_sse_lines(
+          rest,
+          remaining,
+          [content | chunks_acc],
+          callback,
+          request_sent_at_ms,
+          first_token_logged or should_log_ttft
+        )
 
       :skip ->
-        process_sse_lines(rest, remaining, chunks_acc, callback)
+        process_sse_lines(
+          rest,
+          remaining,
+          chunks_acc,
+          callback,
+          request_sent_at_ms,
+          first_token_logged
+        )
 
       :incomplete ->
-        process_sse_lines(rest, remaining ++ [line], chunks_acc, callback)
+        process_sse_lines(
+          rest,
+          remaining ++ [line],
+          chunks_acc,
+          callback,
+          request_sent_at_ms,
+          first_token_logged
+        )
     end
   end
 
@@ -250,7 +363,7 @@ defmodule Lex.LLM.Client do
         :done
 
       String.starts_with?(line, "data: ") ->
-        json_str = String.slice(line, 6..-1)
+        json_str = String.replace_prefix(line, "data: ", "")
 
         case Jason.decode(json_str) do
           {:ok, %{"choices" => [%{"delta" => %{"content" => content}} | _]}} ->

@@ -439,15 +439,6 @@
     background-color: rgba(199, 141, 59, 0.38);
   }
 
-  .token-known {
-    background-color: rgba(99, 170, 120, 0.24);
-    color: var(--warm-text);
-  }
-
-  .token-known:hover {
-    background-color: rgba(99, 170, 120, 0.34);
-  }
-
   .btn-learning {
     background-color: #6e5b49;
     color: var(--warm-text);
@@ -601,7 +592,71 @@
     color: var(--warm-text);
     font-size: 0.9375rem;
     line-height: 1.6;
-    white-space: pre-wrap;
+    white-space: normal;
+  }
+
+  .llm-popup-response p {
+    margin: 0.5rem 0;
+  }
+
+  .llm-popup-response h1,
+  .llm-popup-response h2,
+  .llm-popup-response h3 {
+    margin: 0.75rem 0 0.35rem;
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--warm-text);
+  }
+
+  .llm-popup-response h1 {
+    font-size: 1.1rem;
+  }
+
+  .llm-popup-response h2 {
+    font-size: 1rem;
+  }
+
+  .llm-popup-response h3 {
+    font-size: 0.95rem;
+  }
+
+  .llm-popup-response ul {
+    margin: 0.5rem 0;
+    padding-left: 1rem;
+    list-style: disc;
+  }
+
+  .llm-popup-response li {
+    margin: 0.25rem 0;
+  }
+
+  .llm-popup-response code {
+    padding: 0.1rem 0.3rem;
+    border-radius: 4px;
+    background-color: rgba(102, 83, 64, 0.45);
+    font-size: 0.85em;
+  }
+
+  .llm-popup-response pre {
+    margin: 0.6rem 0;
+    padding: 0.65rem 0.75rem;
+    border-radius: 8px;
+    background-color: rgba(27, 22, 18, 0.75);
+    border: 1px solid rgba(123, 97, 73, 0.35);
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  .llm-popup-response pre code {
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .llm-popup-response a {
+    color: var(--warm-gold-soft);
+    text-decoration: underline;
+    text-underline-offset: 2px;
   }
 
   .llm-popup-footer {

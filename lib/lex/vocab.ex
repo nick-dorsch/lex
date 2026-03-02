@@ -482,12 +482,24 @@ defmodule Lex.Vocab do
           Lex.Accounts.User.t()
         ) :: {String.t(), String.t()}
   def build_llm_prompt(token, sentence, document, user) do
-    system_message = "You are a helpful language learning assistant. Explain words briefly."
+    system_message = """
+      You are a language learner's reading assistant. 
+
+      Your responses should be in the format:
+
+      **Word** - translation of word
+
+      **Context** - explanaton of word usage in context
+
+      Do not think, just respond!
+
+      Respond to the following:
+    """
 
     user_message = """
     Word: #{token.surface} (lemma: #{token.lemma}, pos: #{token.pos})
     Sentence context: #{sentence.text}
-    Document: #{document.title} by #{document.author}
+    Source: #{document.title} by #{document.author}
     Respond in #{user.primary_language}
     """
 
