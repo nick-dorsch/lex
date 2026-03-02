@@ -10,6 +10,18 @@ defmodule LexWeb.LibraryLive.IndexTest do
   alias Lex.Text.Sentence
   alias Lex.Reader.UserSentenceState
 
+  setup do
+    # Set a non-existent Calibre path to isolate tests from the actual Calibre library
+    original_path = Application.fetch_env!(:lex, :calibre_library_path)
+    Application.put_env(:lex, :calibre_library_path, "/nonexistent/calibre/path/for/tests")
+
+    on_exit(fn ->
+      Application.put_env(:lex, :calibre_library_path, original_path)
+    end)
+
+    :ok
+  end
+
   describe "index" do
     test "renders empty state when no documents ready", %{conn: conn} do
       {:ok, _view, html} = live(conn, "/library")
@@ -309,12 +321,20 @@ defmodule LexWeb.LibraryLive.IndexTest do
       user = create_user()
       document = create_ready_document(user)
 
-      {:ok, _view, html} = live(conn, "/library")
+      # Set a non-existent Calibre path for this test
+      original_path = Application.fetch_env!(:lex, :calibre_library_path)
+      Application.put_env(:lex, :calibre_library_path, "/nonexistent/calibre/path/test")
 
-      # Should still show the database document
-      assert html =~ document.title
-      # Should not show calibre notice when path unavailable
-      refute html =~ "Calibre library connected"
+      try do
+        {:ok, _view, html} = live(conn, "/library")
+
+        # Should still show the database document
+        assert html =~ document.title
+        # Should not show calibre notice when path unavailable
+        refute html =~ "Calibre library connected"
+      after
+        Application.put_env(:lex, :calibre_library_path, original_path)
+      end
     end
 
     test "items are sorted by title", %{conn: conn} do
