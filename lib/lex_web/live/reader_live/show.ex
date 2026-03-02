@@ -573,12 +573,19 @@ defmodule LexWeb.ReaderLive.Show do
               send(live_view_pid, Tuple.insert_at(event, 0, :llm_event))
             end
 
+            client_opts =
+              case socket.assigns.llm_connection_owner do
+                nil -> []
+                owner -> [connection_owner: owner]
+              end
+
             case Vocab.request_llm_help(
                    user_id,
                    document.id,
                    sentence.id,
                    token_id,
-                   stream_callback
+                   stream_callback,
+                   client_opts
                  ) do
               {:ok, request_id, start_time} ->
                 # Log the reading event

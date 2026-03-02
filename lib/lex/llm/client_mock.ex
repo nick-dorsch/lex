@@ -40,6 +40,7 @@ defmodule Lex.LLM.ClientMock do
           chunks: list(String.t()) | nil,
           error: term() | nil,
           last_request: list(map()) | nil,
+          last_options: keyword(),
           chunk_delay_ms: non_neg_integer()
         }
 
@@ -54,10 +55,20 @@ defmodule Lex.LLM.ClientMock do
         ) :: {:ok, Task.t()} | {:error, :not_configured}
   def stream_chat_completion(messages, callback)
       when is_list(messages) and is_function(callback, 1) do
+    stream_chat_completion(messages, callback, [])
+  end
+
+  @spec stream_chat_completion(
+          list(Lex.LLM.ClientBehaviour.message()),
+          Lex.LLM.ClientBehaviour.chunk_callback(),
+          keyword()
+        ) :: {:ok, Task.t()} | {:error, :not_configured}
+  def stream_chat_completion(messages, callback, opts)
+      when is_list(messages) and is_function(callback, 1) do
     state = get_mock_state()
 
     # Store the request for later inspection
-    update_mock_state(%{state | last_request: messages})
+    update_mock_state(%{state | last_request: messages, last_options: opts})
 
     task =
       Task.async(fn ->
@@ -162,6 +173,14 @@ defmodule Lex.LLM.ClientMock do
   end
 
   @doc """
+  Returns the last options sent to the mock.
+  """
+  @spec get_last_options() :: keyword()
+  def get_last_options do
+    get_mock_state().last_options
+  end
+
+  @doc """
   Clears all mock state and resets to defaults.
 
   ## Examples
@@ -193,6 +212,7 @@ defmodule Lex.LLM.ClientMock do
               chunks: nil,
               error: nil,
               last_request: nil,
+              last_options: [],
               chunk_delay_ms: @default_chunk_delay_ms
             }
 

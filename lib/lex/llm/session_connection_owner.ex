@@ -43,6 +43,11 @@ defmodule Lex.LLM.SessionConnectionOwner do
     GenServer.call(owner, :current_connection)
   end
 
+  @spec put_connection(GenServer.server(), connection()) :: :ok
+  def put_connection(owner, conn) do
+    GenServer.call(owner, {:put_connection, conn})
+  end
+
   @impl true
   def init(opts) do
     close_fun = Keyword.get(opts, :close_fun, fn _conn -> :ok end)
@@ -97,6 +102,10 @@ defmodule Lex.LLM.SessionConnectionOwner do
 
   def handle_call(:current_connection, _from, state) do
     {:reply, state.connection, state}
+  end
+
+  def handle_call({:put_connection, conn}, _from, state) do
+    {:reply, :ok, %{state | connection: conn, healthy?: true, unhealthy_reason: nil}}
   end
 
   @impl true

@@ -81,6 +81,19 @@ defmodule Lex.LLM.ClientTest do
       assert ClientMock.get_last_request() == messages
     end
 
+    test "passes options through to mock client" do
+      Application.put_env(:lex, :llm_client, ClientMock)
+      ClientMock.set_mock_response("Mocked response")
+
+      messages = [%{role: "user", content: "Hello"}]
+      callback = fn _ -> :ok end
+
+      assert {:ok, _task} =
+               Client.stream_chat_completion(messages, callback, connection_owner: self())
+
+      assert ClientMock.get_last_options() == [connection_owner: self()]
+    end
+
     test "validates message structure" do
       messages = [%{role: "user", content: "Hello"}]
       callback = fn _ -> :ok end

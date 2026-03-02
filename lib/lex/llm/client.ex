@@ -18,9 +18,12 @@ defmodule Lex.LLM.Client do
 
   require Logger
 
+  alias Lex.LLM.SessionConnectionOwner
+
   @type message :: %{role: String.t(), content: String.t()}
   @type chunk_callback ::
           ({:chunk, String.t()} | {:done, map()} | {:error, term()} -> any())
+  @type stream_opt :: {:connection_owner, GenServer.server()}
 
   @doc """
   Stream a chat completion from the LLM API.
@@ -58,15 +61,31 @@ defmodule Lex.LLM.Client do
           {:ok, Task.t()} | {:error, :not_configured}
   def stream_chat_completion(messages, callback)
       when is_list(messages) and is_function(callback, 1) do
+    stream_chat_completion(messages, callback, [])
+  end
+
+  @spec stream_chat_completion(list(message()), chunk_callback(), [stream_opt()]) ::
+          {:ok, Task.t()} | {:error, :not_configured}
+  def stream_chat_completion(messages, callback, opts)
+      when is_list(messages) and is_function(callback, 1) do
     # Allow injection of mock client for testing
     case Application.get_env(:lex, :llm_client) do
-      nil -> do_stream_chat_completion(messages, callback)
-      __MODULE__ -> do_stream_chat_completion(messages, callback)
-      mock_module -> mock_module.stream_chat_completion(messages, callback)
+      nil ->
+        do_stream_chat_completion(messages, callback, opts)
+
+      __MODULE__ ->
+        do_stream_chat_completion(messages, callback, opts)
+
+      mock_module ->
+        if function_exported?(mock_module, :stream_chat_completion, 3) do
+          mock_module.stream_chat_completion(messages, callback, opts)
+        else
+          mock_module.stream_chat_completion(messages, callback)
+        end
     end
   end
 
-  defp do_stream_chat_completion(messages, callback) do
+  defp do_stream_chat_completion(messages, callback, opts) do
     api_key = get_config(:llm_api_key)
     base_url = get_config(:llm_base_url)
 
@@ -78,14 +97,14 @@ defmodule Lex.LLM.Client do
 
       task =
         Task.async(fn ->
-          do_stream_chat_completion(messages, callback, api_key, base_url, model, timeout)
+          do_stream_chat_completion(messages, callback, api_key, base_url, model, timeout, opts)
         end)
 
       {:ok, task}
     end
   end
 
-  defp do_stream_chat_completion(messages, callback, api_key, base_url, model, timeout) do
+  defp do_stream_chat_completion(messages, callback, api_key, base_url, model, timeout, opts) do
     url = "#{base_url}/chat/completions"
 
     headers = [
@@ -100,23 +119,17 @@ defmodule Lex.LLM.Client do
         stream: true
       })
 
-    case make_streaming_request(url, headers, body, timeout, callback) do
+    case make_streaming_request(url, headers, body, timeout, callback, opts) do
       :ok -> :ok
       {:error, reason} -> callback.({:error, reason})
     end
   end
 
-  defp make_streaming_request(url, headers, body, timeout, callback) do
+  defp make_streaming_request(url, headers, body, timeout, callback, opts) do
     # Use Mint for streaming HTTP
     uri = URI.parse(url)
 
-    with {:ok, conn} <-
-           Mint.HTTP.connect(
-             scheme_to_atom(uri.scheme) || :https,
-             uri.host,
-             uri.port || 443,
-             transport_opts: [timeout: timeout]
-           ) do
+    with_connection(uri, timeout, opts, fn conn ->
       request_sent_at_ms = System.monotonic_time(:millisecond)
 
       case Mint.HTTP.request(
@@ -127,26 +140,66 @@ defmodule Lex.LLM.Client do
              body
            ) do
         {:ok, conn, _request_ref} ->
-          result =
-            stream_response(conn, callback, "", [], timeout, request_sent_at_ms, false)
-
-          Mint.HTTP.close(conn)
-          result
+          stream_response(conn, callback, "", [], timeout, request_sent_at_ms, false)
 
         {:error, conn, reason} ->
           Mint.HTTP.close(conn)
           callback.({:error, {:network_error, reason}})
+          {:error, {:network_error, reason}}
 
         {:error, reason} ->
           callback.({:error, {:network_error, reason}})
+          {:error, {:network_error, reason}}
       end
-    else
+    end)
+  end
+
+  defp with_connection(uri, timeout, opts, request_fun) do
+    case Keyword.get(opts, :connection_owner) do
+      nil ->
+        with {:ok, conn} <- connect(uri, timeout),
+             {:ok, conn} <- request_fun.(conn) do
+          Mint.HTTP.close(conn)
+          :ok
+        else
+          {:error, conn, reason} ->
+            Mint.HTTP.close(conn)
+            {:error, {:network_error, reason}}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      owner ->
+        with {:ok, conn} <-
+               SessionConnectionOwner.get_or_connect(owner, fn -> connect(uri, timeout) end),
+             {:ok, updated_conn} <- request_fun.(conn) do
+          :ok = SessionConnectionOwner.put_connection(owner, updated_conn)
+          :ok
+        else
+          {:error, reason} = error ->
+            :ok = SessionConnectionOwner.mark_unhealthy(owner, reason)
+            error
+        end
+    end
+  end
+
+  defp connect(uri, timeout) do
+    case Mint.HTTP.connect(
+           scheme_to_atom(uri.scheme) || :https,
+           uri.host,
+           uri.port || 443,
+           transport_opts: [timeout: timeout]
+         ) do
+      {:ok, conn} ->
+        {:ok, conn}
+
       {:error, conn, reason} ->
         Mint.HTTP.close(conn)
-        callback.({:error, {:network_error, reason}})
+        {:error, {:network_error, reason}}
 
       {:error, reason} ->
-        callback.({:error, {:network_error, reason}})
+        {:error, {:network_error, reason}}
     end
   end
 
@@ -188,7 +241,7 @@ defmodule Lex.LLM.Client do
 
             if done do
               send_completion_stats(callback, new_chunks_acc)
-              :ok
+              {:ok, new_conn}
             else
               stream_response(
                 new_conn,
@@ -204,13 +257,13 @@ defmodule Lex.LLM.Client do
           {:error, conn, error, _responses} ->
             Mint.HTTP.close(conn)
             callback.({:error, {:http_error, error}})
-            :error
+            {:error, {:http_error, error}}
         end
     after
       timeout ->
         Mint.HTTP.close(conn)
         callback.({:error, :timeout})
-        :error
+        {:error, :timeout}
     end
   end
 

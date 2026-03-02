@@ -528,6 +528,13 @@ defmodule Lex.Vocab do
           {:ok, integer(), integer()} | {:error, atom()}
   def request_llm_help(user_id, document_id, sentence_id, token_id, stream_callback)
       when is_function(stream_callback, 1) do
+    request_llm_help(user_id, document_id, sentence_id, token_id, stream_callback, [])
+  end
+
+  @spec request_llm_help(integer(), integer(), integer(), integer(), function(), keyword()) ::
+          {:ok, integer(), integer()} | {:error, atom()}
+  def request_llm_help(user_id, document_id, sentence_id, token_id, stream_callback, client_opts)
+      when is_function(stream_callback, 1) do
     # Get user for response language preference
     user = Repo.get(Lex.Accounts.User, user_id)
 
@@ -551,7 +558,8 @@ defmodule Lex.Vocab do
             sentence_id,
             token_id,
             response_language,
-            stream_callback
+            stream_callback,
+            client_opts
           )
       end
     end
@@ -563,7 +571,8 @@ defmodule Lex.Vocab do
          sentence_id,
          token_id,
          response_language,
-         stream_callback
+         stream_callback,
+         client_opts
        ) do
     start_time = System.monotonic_time(:millisecond)
 
@@ -607,7 +616,7 @@ defmodule Lex.Vocab do
         end
 
         # Start streaming
-        case Lex.LLM.Client.stream_chat_completion(messages, wrapper_callback) do
+        case Lex.LLM.Client.stream_chat_completion(messages, wrapper_callback, client_opts) do
           {:ok, _task} ->
             {:ok, request.id, start_time}
 
