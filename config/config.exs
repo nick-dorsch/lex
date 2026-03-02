@@ -1,7 +1,8 @@
 import Config
 
 config :lex,
-  ecto_repos: [Lex.Repo]
+  ecto_repos: [Lex.Repo],
+  calibre_library_path: "~/CalibreLibrary"
 
 config :lex, Lex.Repo, adapter: Ecto.Adapters.SQLite3
 

@@ -9,6 +9,27 @@ defmodule Lex.Library do
   require Logger
 
   @doc """
+  Returns the configured Calibre library path.
+
+  The path is read from the `CALIBRE_LIBRARY_PATH` environment variable,
+  defaulting to `~/CalibreLibrary`. The path is expanded to an absolute path.
+
+  Returns the expanded path as a string. Logs a warning if the path doesn't exist.
+  """
+  @spec calibre_library_path() :: String.t()
+  def calibre_library_path() do
+    path =
+      Application.fetch_env!(:lex, :calibre_library_path)
+      |> Path.expand()
+
+    unless File.exists?(path) do
+      Logger.warning("Calibre library path does not exist: #{path}")
+    end
+
+    path
+  end
+
+  @doc """
   Imports an EPUB file and creates all associated database records.
 
   ## Options

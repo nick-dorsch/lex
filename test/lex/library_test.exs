@@ -535,4 +535,49 @@ defmodule Lex.LibraryTest do
       end
     end
   end
+
+  describe "calibre_library_path/0" do
+    test "returns expanded default path" do
+      path = Library.calibre_library_path()
+
+      assert String.starts_with?(path, "/")
+      assert path =~ "CalibreLibrary"
+    end
+
+    test "reads from env var CALIBRE_LIBRARY_PATH" do
+      original_path = System.get_env("CALIBRE_LIBRARY_PATH")
+
+      try do
+        System.put_env("CALIBRE_LIBRARY_PATH", "/custom/calibre/path")
+        Application.put_env(:lex, :calibre_library_path, "/custom/calibre/path")
+
+        path = Library.calibre_library_path()
+        assert path == "/custom/calibre/path"
+      after
+        if original_path do
+          System.put_env("CALIBRE_LIBRARY_PATH", original_path)
+        else
+          System.delete_env("CALIBRE_LIBRARY_PATH")
+        end
+
+        Application.put_env(:lex, :calibre_library_path, "~/CalibreLibrary")
+      end
+    end
+
+    test "expands ~ to home directory" do
+      original_config = Application.fetch_env!(:lex, :calibre_library_path)
+
+      try do
+        Application.put_env(:lex, :calibre_library_path, "~/MyCalibre")
+
+        path = Library.calibre_library_path()
+
+        refute path =~ "~"
+        assert String.starts_with?(path, "/")
+        assert path =~ "MyCalibre"
+      after
+        Application.put_env(:lex, :calibre_library_path, original_config)
+      end
+    end
+  end
 end
