@@ -46,9 +46,19 @@ export default {
 
     this.cacheTokens();
 
+    this.isLLMPopupVisible = () => {
+      const popup = document.getElementById('llm-popup');
+      return popup && popup.offsetParent !== null;
+    };
+
     this.handler = (e) => {
       const keys = ['j', 'k', 'w', 'b', ' '];
       if (keys.includes(e.key)) {
+        // Skip space key handling when LLM popup is visible (handled by LLMPopup hook)
+        if (e.key === ' ' && this.isLLMPopupVisible()) {
+          return;
+        }
+
         e.preventDefault();
 
         if (e.key === 'w' || e.key === 'b') {
