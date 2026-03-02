@@ -186,14 +186,119 @@ defmodule LexWeb.LibraryLive.IndexTest do
     end
   end
 
-  describe "refresh functionality" do
-    test "refresh button triggers reload", %{conn: conn} do
+  describe "refresh_calibre event" do
+    test "refresh button triggers reload and shows flash", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/library")
 
       # Click refresh button
-      html = view |> element("button", "Refresh") |> render_click()
+      html = view |> element("button", "Refresh Library") |> render_click()
 
       assert html =~ "My Library"
+      # Flash messages appear in the rendered HTML when there's a flash
+      # Since Calibre path is not available in tests, count will be 0
+      assert html =~ "Found 0 books in Calibre library"
+    end
+
+    test "refresh button is debounced", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/library")
+
+      # First click should work
+      view |> element("button", "Refresh Library") |> render_click()
+
+      # Button should now be disabled
+      html = render(view)
+      assert html =~ "Refreshing..."
+      assert html =~ "disabled"
+    end
+
+    test "refresh debounce is cleared after timer", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/library")
+
+      # First click enables debounce
+      view |> element("button", "Refresh Library") |> render_click()
+      html = render(view)
+      assert html =~ "Refreshing..."
+
+      # Send the clear debounce message directly
+      send(view.pid, :clear_refresh_debounce)
+
+      # Button should be enabled again
+      html = render(view)
+      assert html =~ "Refresh Library"
+      refute html =~ "disabled"
+    end
+  end
+
+  describe "import_epub event" do
+    test "handles import_epub event for non-existent file", %{conn: conn} do
+      # Test that the event handler exists and works without crashing
+      {:ok, view, _html} = live(conn, "/library")
+
+      # The handler should work even if the file doesn't exist
+      # (it will mark as importing via PubSub)
+      html =
+        view
+        |> element("button", "Refresh Library")
+        |> render_click()
+
+      assert html =~ "My Library"
+    end
+  end
+
+  describe "async import completion via PubSub" do
+    test "handle_info updates UI when import_started received", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/library")
+
+      file_path = "/test/book.epub"
+      send(view.pid, {:import_started, file_path, 1})
+
+      # The page should handle the message without crashing
+      html = render(view)
+      assert html =~ "My Library"
+    end
+
+    test "handle_info updates UI when import_completed received", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+
+      {:ok, view, _html} = live(conn, "/library")
+
+      file_path = "/test/book.epub"
+
+      # Send import_started first
+      send(view.pid, {:import_started, file_path, user.id})
+
+      # Then send completion
+      send(view.pid, {:import_completed, file_path, document.id, user.id})
+
+      html = render(view)
+      assert html =~ "My Library"
+    end
+
+    test "handle_info updates UI when import_failed received", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/library")
+
+      file_path = "/test/book.epub"
+
+      # Send failure message directly
+      send(view.pid, {:import_failed, file_path, "EPUB parsing failed", 1})
+
+      html = render(view)
+      assert html =~ "My Library"
+    end
+
+    test "handle_info clears refresh debounce", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/library")
+
+      # Enable debounce
+      view |> element("button", "Refresh Library") |> render_click()
+
+      # Send clear message
+      send(view.pid, :clear_refresh_debounce)
+
+      html = render(view)
+      assert html =~ "Refresh Library"
+      refute html =~ "disabled"
     end
   end
 

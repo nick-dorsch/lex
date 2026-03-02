@@ -17,6 +17,7 @@ defmodule LexWeb.Router do
   scope "/", LexWeb do
     pipe_through(:browser)
 
+    live("/", LibraryLive.Index)
     live("/library", LibraryLive.Index)
     live("/read/:document_id", ReaderLive.Show)
   end

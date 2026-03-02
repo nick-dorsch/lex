@@ -7,7 +7,7 @@ defmodule LexWeb.LibraryLive.Index do
 
   alias Lex.Repo
   alias Lex.Library
-  alias Lex.Library.{CalibreScanner, Document, ImportTracker, ImportWorker}
+  alias Lex.Library.{CalibreScanner, Document, ImportTracker}
   alias Lex.Text.Sentence
   alias Lex.Reader.UserSentenceState
   alias Phoenix.PubSub
@@ -41,7 +41,8 @@ defmodule LexWeb.LibraryLive.Index do
      socket
      |> assign(:items, items)
      |> assign(:user_id, user_id)
-     |> assign(:calibre_available, calibre_available?())}
+     |> assign(:calibre_available, calibre_available?())
+     |> assign(:refreshing, false)}
   end
 
   @impl true
@@ -56,6 +57,11 @@ defmodule LexWeb.LibraryLive.Index do
       end)
 
     {:noreply, assign(socket, :items, items)}
+  end
+
+  @impl true
+  def handle_info(:clear_refresh_debounce, socket) do
+    {:noreply, assign(socket, :refreshing, false)}
   end
 
   @impl true
@@ -79,7 +85,12 @@ defmodule LexWeb.LibraryLive.Index do
         end
       end)
 
-    {:noreply, assign(socket, :items, items)}
+    title = if document, do: document.title, else: "Book"
+
+    {:noreply,
+     socket
+     |> assign(:items, items)
+     |> put_flash(:info, "'#{title}' imported successfully")}
   end
 
   @impl true
@@ -93,7 +104,10 @@ defmodule LexWeb.LibraryLive.Index do
         end
       end)
 
-    {:noreply, assign(socket, :items, items)}
+    {:noreply,
+     socket
+     |> assign(:items, items)
+     |> put_flash(:error, "Import failed: #{reason}")}
   end
 
   @impl true
@@ -102,35 +116,61 @@ defmodule LexWeb.LibraryLive.Index do
   end
 
   @impl true
-  def handle_event("import", %{"file_path" => file_path}, socket) do
+  def handle_event("import_epub", %{"file_path" => file_path}, socket) do
     user_id = socket.assigns.user_id
 
     # Start the import in the background
-    case ImportTracker.start_import(file_path, user_id) do
-      :ok ->
-        ImportWorker.start_import(file_path, user_id)
-
+    case Library.import_epub_async(file_path, user_id) do
+      {:ok, :started} ->
         # Update the local state immediately for UI feedback
         items =
           Enum.map(socket.assigns.items, fn item ->
             if item.id == file_path do
-              %{item | import_status: :importing}
+              %{item | import_status: :importing, error: nil}
             else
               item
             end
           end)
 
-        {:noreply, assign(socket, :items, items)}
+        {:noreply,
+         socket
+         |> assign(:items, items)
+         |> put_flash(:info, "Import started...")}
 
-      :already_importing ->
-        {:noreply, socket}
+      {:ok, :already_importing} ->
+        {:noreply, put_flash(socket, :warning, "Import already in progress")}
+
+      {:ok, :already_imported} ->
+        {:noreply, put_flash(socket, :info, "Book already imported")}
     end
   end
 
   @impl true
-  def handle_event("refresh", _params, socket) do
-    items = load_unified_library(socket.assigns.user_id)
-    {:noreply, assign(socket, :items, items)}
+  def handle_event("refresh_calibre", _params, socket) do
+    # Debounce: prevent rapid clicking
+    if socket.assigns.refreshing do
+      {:noreply, socket}
+    else
+      user_id = socket.assigns.user_id
+
+      # Re-scan Calibre library (this will automatically clear stale states)
+      items = load_unified_library(user_id)
+
+      # Count Calibre books
+      calibre_count =
+        items
+        |> Enum.filter(&(&1.source == :calibre))
+        |> length()
+
+      # Start timer to clear debounce flag after 2 seconds
+      Process.send_after(self(), :clear_refresh_debounce, 2000)
+
+      {:noreply,
+       socket
+       |> assign(:items, items)
+       |> assign(:refreshing, true)
+       |> put_flash(:info, "Found #{calibre_count} books in Calibre library")}
+    end
   end
 
   defp get_user_id(_socket) do

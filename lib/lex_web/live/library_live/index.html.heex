@@ -1,8 +1,16 @@
 <div class="library-container">
   <div class="library-header">
     <h1>My Library</h1>
-    <button class="refresh-btn" phx-click="refresh">
-      Refresh
+    <button 
+      class="refresh-btn" 
+      phx-click="refresh_calibre"
+      disabled={@refreshing}
+    >
+      <%= if @refreshing do %>
+        Refreshing...
+      <% else %>
+        Refresh Library
+      <% end %>
     </button>
   </div>
 
@@ -41,7 +49,7 @@
               <% :not_imported -> %>
                 <button 
                   class="import-btn" 
-                  phx-click="import" 
+                  phx-click="import_epub" 
                   phx-value-file_path={item.id}
                 >
                   Import
@@ -81,7 +89,7 @@
                   <% end %>
                   <button 
                     class="import-btn retry" 
-                    phx-click="import" 
+                    phx-click="import_epub" 
                     phx-value-file_path={item.id}
                   >
                     Retry

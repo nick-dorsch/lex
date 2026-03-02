@@ -12,6 +12,8 @@ config :logger, :console,
 
 config :phoenix, :json_library, Jason
 
+config :lex, LexWeb.Endpoint, live_view: [signing_salt: "GJj5zLq7-X-H5ABE"]
+
 # Tailwind CSS configuration
 config :tailwind,
   version: "3.4.0",

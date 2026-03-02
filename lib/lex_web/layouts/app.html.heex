@@ -1,3 +1,20 @@
 <main class="container mx-auto px-4 py-8 max-w-7xl">
+  <div id="flash-messages" class="mb-4">
+    <%= if info = Phoenix.Flash.get(@flash, :info) do %>
+      <div class="flash-info bg-blue-900 text-blue-100 px-4 py-3 rounded mb-2" role="alert">
+        <%= info %>
+      </div>
+    <% end %>
+    <%= if warning = Phoenix.Flash.get(@flash, :warning) do %>
+      <div class="flash-warning bg-yellow-900 text-yellow-100 px-4 py-3 rounded mb-2" role="alert">
+        <%= warning %>
+      </div>
+    <% end %>
+    <%= if error = Phoenix.Flash.get(@flash, :error) do %>
+      <div class="flash-error bg-red-900 text-red-100 px-4 py-3 rounded mb-2" role="alert">
+        <%= error %>
+      </div>
+    <% end %>
+  </div>
   <%= @inner_content %>
 </main>
