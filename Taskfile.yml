@@ -4,6 +4,13 @@ vars:
   PYTHON_DIR: priv/python
 
 tasks:
+  run:
+    desc: Run the Phoenix web server
+    silent: true
+    cmds:
+      - echo "Running Lex server on localhost:4000..."
+      - mix phx.server
+
   test:
     desc: Run all tests
     silent: true

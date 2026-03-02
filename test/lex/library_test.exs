@@ -1,12 +1,13 @@
 defmodule Lex.LibraryTest do
-  use Lex.DataCase, async: true
+  use Lex.DataCase, async: false
 
   import Ecto.Query
 
   alias Lex.Library
-  alias Lex.Library.{Document, Section}
+  alias Lex.Library.{Document, ImportTracker, Section}
   alias Lex.Repo
   alias Lex.Text.{Lexeme, Sentence, Token}
+  alias Phoenix.PubSub
 
   describe "import_epub/2" do
     setup do

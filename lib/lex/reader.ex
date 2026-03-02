@@ -369,15 +369,23 @@ defmodule Lex.Reader do
   @spec skip_to_next_section(integer(), integer(), integer()) ::
           {:ok, %{section: Section.t(), sentence: Sentence.t(), skipped_sentences: integer()}}
           | {:error, :end_of_document}
-  def skip_to_next_section(document_id, current_section_id, _current_sentence_id) do
-    # Get current section to find its position
+  def skip_to_next_section(document_id, current_section_id, current_sentence_id) do
+    # Get current section and sentence to find positions
     current_section = Repo.get(Section, current_section_id)
+    current_sentence = Repo.get(Sentence, current_sentence_id)
+
+    # Count remaining sentences in current section (after current position)
+    current_section_remaining =
+      Sentence
+      |> where(section_id: ^current_section_id)
+      |> where([s], s.position > ^current_sentence.position)
+      |> Repo.aggregate(:count, :id)
 
     # Find the next section and accumulate skipped sentences
     skip_to_next_section_recursive(
       document_id,
       current_section.position,
-      0
+      current_section_remaining
     )
   end
 

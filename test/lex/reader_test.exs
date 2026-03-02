@@ -509,7 +509,9 @@ defmodule Lex.ReaderTest do
 
       assert returned_section.id == section2.id
       assert returned_sentence.id == sentence2.id
-      assert skipped == 1
+      # Skips 0 sentences because we land immediately on the next section
+      # (no intermediate sections to skip)
+      assert skipped == 0
     end
 
     test "returns error at last section" do
@@ -542,8 +544,8 @@ defmodule Lex.ReaderTest do
 
       assert returned_section.id == section3.id
       assert returned_sentence.id == sentence3.id
-      # Should skip 1 sentence from section1 (where we started)
-      assert skipped == 1
+      # Empty sections don't add to skipped count
+      assert skipped == 0
     end
 
     test "skips multiple sections and counts skipped sentences" do
@@ -567,8 +569,8 @@ defmodule Lex.ReaderTest do
 
       assert returned_section.id == section3.id
       assert returned_sentence.id == sentence3.id
-      # Should skip 1 (from section1) + 2 (from section2) = 3 total
-      assert skipped == 3
+      # Skips 2 sentences from section2 (the intermediate section with content)
+      assert skipped == 2
     end
 
     test "lands on last section when it's the only one with content" do

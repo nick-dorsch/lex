@@ -3,7 +3,9 @@ defmodule Lex.Library do
   The Library context - Documents, sections, ingestion.
   """
 
-  alias Lex.Library.{Document, EPUB, Section}
+  import Ecto.Query
+
+  alias Lex.Library.{Document, EPUB, ImportTracker, ImportWorker, Section}
   alias Lex.Repo
   alias Lex.Text.{Lexeme, NLP, Sentence, Token}
   require Logger
@@ -265,5 +267,51 @@ defmodule Lex.Library do
       {:ok, document} -> document
       {:error, changeset} -> Repo.rollback({:validation_failed, changeset})
     end
+  end
+
+  @doc """
+  Asynchronously imports an EPUB file using a supervised Task.
+
+  ## Options
+    - `:user_id` (required) - User to associate document with
+    - `:source_file` - Override source path in Document (default: file_path)
+
+  ## Returns
+    - `{:ok, :started}` - Import was started successfully
+    - `{:ok, :already_importing}` - Import is already in progress
+    - `{:ok, :already_imported}` - Document already exists for this file
+  """
+  @spec import_epub_async(Path.t(), integer(), keyword()) ::
+          {:ok, :started | :already_importing | :already_imported}
+  def import_epub_async(file_path, user_id, opts \\ []) do
+    source_file = Keyword.get(opts, :source_file, file_path)
+
+    cond do
+      # Check if already importing via ImportTracker
+      match?({:importing, _pid}, ImportTracker.get_status(file_path)) ->
+        {:ok, :already_importing}
+
+      # Check if already imported in database
+      document_exists?(source_file, user_id) ->
+        {:ok, :already_imported}
+
+      true ->
+        # Start supervised task
+        Task.Supervisor.start_child(
+          Lex.Library.ImportTaskSupervisor,
+          fn ->
+            ImportWorker.run(file_path, user_id, opts)
+          end,
+          restart: :transient
+        )
+
+        {:ok, :started}
+    end
+  end
+
+  defp document_exists?(source_file, user_id) do
+    Document
+    |> where([d], d.source_file == ^source_file and d.user_id == ^user_id)
+    |> Repo.exists?()
   end
 end
