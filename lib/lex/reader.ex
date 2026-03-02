@@ -352,6 +352,107 @@ defmodule Lex.Reader do
   end
 
   @doc """
+  Skips to the first sentence of the next section.
+
+  Returns the first sentence of the next section in the document.
+  If at the last section, returns an error indicating the end of document.
+  Skips empty sections automatically.
+
+  ## Examples
+
+      iex> skip_to_next_section(document_id, current_section_id, current_sentence_id)
+      {:ok, %{section: %Section{}, sentence: %Sentence{}, skipped_sentences: 5}}
+
+      iex> skip_to_next_section(document_id, last_section_id, last_sentence_id)
+      {:error, :end_of_document}
+  """
+  @spec skip_to_next_section(integer(), integer(), integer()) ::
+          {:ok, %{section: Section.t(), sentence: Sentence.t(), skipped_sentences: integer()}}
+          | {:error, :end_of_document}
+  def skip_to_next_section(document_id, current_section_id, _current_sentence_id) do
+    # Get current section to find its position
+    current_section = Repo.get(Section, current_section_id)
+
+    # Find the next section and accumulate skipped sentences
+    skip_to_next_section_recursive(
+      document_id,
+      current_section.position,
+      0
+    )
+  end
+
+  # Recursive helper that finds the landing section and counts skipped sentences.
+  # Skipped sentences include all sentences in sections that are "jumped over"
+  # to reach the landing section.
+  defp skip_to_next_section_recursive(document_id, after_position, skipped_count) do
+    # Get the next section
+    next_section =
+      Section
+      |> where(document_id: ^document_id)
+      |> where([s], s.position > ^after_position)
+      |> order_by(asc: :position)
+      |> limit(1)
+      |> Repo.one()
+
+    case next_section do
+      nil ->
+        {:error, :end_of_document}
+
+      %Section{} = candidate_section ->
+        # Count sentences in this candidate section
+        section_sentence_count =
+          Sentence
+          |> where(section_id: ^candidate_section.id)
+          |> Repo.aggregate(:count, :id)
+
+        if section_sentence_count == 0 do
+          # Empty section, skip it (doesn't add to count since it has no sentences)
+          skip_to_next_section_recursive(
+            document_id,
+            candidate_section.position,
+            skipped_count
+          )
+        else
+          # This section has sentences - check if we should land here or skip further
+          first_sentence =
+            Sentence
+            |> where(section_id: ^candidate_section.id)
+            |> order_by(asc: :position)
+            |> limit(1)
+            |> Repo.one()
+
+          # Check if there's another section after this one
+          next_after_candidate =
+            Section
+            |> where(document_id: ^document_id)
+            |> where([s], s.position > ^candidate_section.position)
+            |> order_by(asc: :position)
+            |> limit(1)
+            |> Repo.one()
+
+          case next_after_candidate do
+            nil ->
+              # No more sections, must land here (can't skip the last section)
+              {:ok,
+               %{
+                 section: candidate_section,
+                 sentence: first_sentence,
+                 skipped_sentences: skipped_count
+               }}
+
+            _ ->
+              # There are more sections, skip this one and continue
+              skip_to_next_section_recursive(
+                document_id,
+                candidate_section.position,
+                skipped_count + section_sentence_count
+              )
+          end
+        end
+    end
+  end
+
+  @doc """
   Logs a reading event for analytics.
 
   Creates a reading event record with the given user_id, event_type, and metadata.

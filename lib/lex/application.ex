@@ -9,6 +9,7 @@ defmodule Lex.Application do
       Lex.Repo,
       LexWeb.Telemetry,
       {Phoenix.PubSub, name: Lex.PubSub},
+      Lex.Library.ImportTracker,
       LexWeb.Endpoint
     ]
 

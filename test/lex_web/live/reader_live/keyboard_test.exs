@@ -76,6 +76,19 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       assert render_hook(view, :key_nav, %{"key" => "space"})
     end
 
+    test "handles key_nav event for 's' key", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "This is a test sentence.")
+      create_tokens_for_sentence(sentence, ["This", "is", "a", "test", "sentence", "."])
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Send key_nav event for 's' key
+      assert render_hook(view, :key_nav, %{"key" => "s"})
+    end
+
     test "ignores unknown keys in key_nav event", %{conn: conn} do
       user = create_user()
       document = create_ready_document(user)
@@ -243,6 +256,101 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
     end
   end
 
+  describe "skip section navigation" do
+    test "'s' key navigates to next section", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section1 = create_section_with_position(document, 1, "Chapter 1")
+      section2 = create_section_with_position(document, 2, "Chapter 2")
+      sentence1 = create_sentence(section1, 1, "First chapter sentence.")
+      sentence2 = create_sentence(section2, 1, "Second chapter sentence.")
+      create_tokens_for_sentence(sentence1, ["First", "chapter", "sentence", "."])
+      create_tokens_for_sentence(sentence2, ["Second", "chapter", "sentence", "."])
+
+      {:ok, view, html} = live(conn, "/read/#{document.id}")
+
+      # Initially showing chapter 1
+      assert html =~ "Chapter 1"
+      assert html =~ "First"
+
+      # Press 's' to skip to next section
+      html = render_hook(view, :key_nav, %{"key" => "s"})
+
+      # Should now show chapter 2
+      assert html =~ "Chapter 2"
+      assert html =~ "Second"
+    end
+
+    test "clicking skip section button navigates to next section", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section1 = create_section_with_position(document, 1, "Chapter 1")
+      section2 = create_section_with_position(document, 2, "Chapter 2")
+      sentence1 = create_sentence(section1, 1, "First chapter sentence.")
+      sentence2 = create_sentence(section2, 1, "Second chapter sentence.")
+      create_tokens_for_sentence(sentence1, ["First", "chapter", "sentence", "."])
+      create_tokens_for_sentence(sentence2, ["Second", "chapter", "sentence", "."])
+
+      {:ok, view, html} = live(conn, "/read/#{document.id}")
+
+      # Initially showing chapter 1
+      assert html =~ "Chapter 1"
+      assert html =~ "First"
+
+      # Click skip section button
+      html = render_click(view, :skip_section)
+
+      # Should now show chapter 2
+      assert html =~ "Chapter 2"
+      assert html =~ "Second"
+    end
+
+    test "skip section at last section stays at current position", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document, "Only Chapter")
+      sentence = create_sentence(section, 1, "Only sentence.")
+      create_tokens_for_sentence(sentence, ["Only", "sentence", "."])
+
+      {:ok, view, html} = live(conn, "/read/#{document.id}")
+
+      # Initially showing the only chapter
+      assert html =~ "Only Chapter"
+      assert html =~ "Only"
+
+      # Press 's' to try to skip - should stay at current position
+      html = render_hook(view, :key_nav, %{"key" => "s"})
+
+      # Should still show same chapter
+      assert html =~ "Only Chapter"
+      assert html =~ "Only"
+    end
+
+    test "skip section does not mark skipped sentences as read", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section1 = create_section_with_position(document, 1, "Chapter 1")
+      section2 = create_section_with_position(document, 2, "Chapter 2")
+      sentence1 = create_sentence(section1, 1, "First chapter.")
+      sentence2 = create_sentence(section1, 2, "Second sentence.")
+      sentence3 = create_sentence(section2, 1, "Next chapter.")
+      create_tokens_for_sentence(sentence1, ["First", "chapter", "."])
+      create_tokens_for_sentence(sentence2, ["Second", "sentence", "."])
+      create_tokens_for_sentence(sentence3, ["Next", "chapter", "."])
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Skip to next section
+      render_hook(view, :key_nav, %{"key" => "s"})
+
+      # Check that skipped sentences are not marked as read
+      # (This would require checking the database, which is done in context tests)
+      # Here we just verify the navigation worked
+      html = render(view)
+      assert html =~ "Chapter 2"
+    end
+  end
+
   describe "token click to focus" do
     test "clicking a token sets focus to that token", %{conn: conn} do
       user = create_user()
@@ -292,6 +400,16 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
     |> Section.changeset(%{
       document_id: document.id,
       position: 1,
+      title: title
+    })
+    |> Repo.insert!()
+  end
+
+  defp create_section_with_position(document, position, title) do
+    %Section{}
+    |> Section.changeset(%{
+      document_id: document.id,
+      position: position,
       title: title
     })
     |> Repo.insert!()

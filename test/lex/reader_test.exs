@@ -490,6 +490,110 @@ defmodule Lex.ReaderTest do
     end
   end
 
+  describe "skip_to_next_section/3" do
+    test "skips to first sentence of next section" do
+      user = create_user()
+      document = create_document(user.id)
+      section1 = create_section(document.id, 1, %{title: "Chapter 1"})
+      section2 = create_section(document.id, 2, %{title: "Chapter 2"})
+      sentence1 = create_sentence(section1.id, 1, "Last sentence of chapter 1.")
+      sentence2 = create_sentence(section2.id, 1, "First sentence of chapter 2.")
+
+      assert {:ok,
+              %{
+                section: returned_section,
+                sentence: returned_sentence,
+                skipped_sentences: skipped
+              }} =
+               Reader.skip_to_next_section(document.id, section1.id, sentence1.id)
+
+      assert returned_section.id == section2.id
+      assert returned_sentence.id == sentence2.id
+      assert skipped == 1
+    end
+
+    test "returns error at last section" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1, %{title: "Only Chapter"})
+      sentence = create_sentence(section.id, 1, "Only sentence.")
+
+      assert {:error, :end_of_document} =
+               Reader.skip_to_next_section(document.id, section.id, sentence.id)
+    end
+
+    test "skips empty sections automatically" do
+      user = create_user()
+      document = create_document(user.id)
+      section1 = create_section(document.id, 1, %{title: "Chapter 1"})
+      _section2 = create_section(document.id, 2, %{title: "Empty Chapter"})
+      section3 = create_section(document.id, 3, %{title: "Chapter 3"})
+      sentence1 = create_sentence(section1.id, 1, "Sentence in chapter 1.")
+      # section2 has no sentences
+      sentence3 = create_sentence(section3.id, 1, "Sentence in chapter 3.")
+
+      assert {:ok,
+              %{
+                section: returned_section,
+                sentence: returned_sentence,
+                skipped_sentences: skipped
+              }} =
+               Reader.skip_to_next_section(document.id, section1.id, sentence1.id)
+
+      assert returned_section.id == section3.id
+      assert returned_sentence.id == sentence3.id
+      # Should skip 1 sentence from section1 (where we started)
+      assert skipped == 1
+    end
+
+    test "skips multiple sections and counts skipped sentences" do
+      user = create_user()
+      document = create_document(user.id)
+      section1 = create_section(document.id, 1, %{title: "Chapter 1"})
+      section2 = create_section(document.id, 2, %{title: "Chapter 2"})
+      section3 = create_section(document.id, 3, %{title: "Chapter 3"})
+      sentence1 = create_sentence(section1.id, 1, "Sentence 1.")
+      _sentence2a = create_sentence(section2.id, 1, "Sentence 2a.")
+      _sentence2b = create_sentence(section2.id, 2, "Sentence 2b.")
+      sentence3 = create_sentence(section3.id, 1, "Sentence 3.")
+
+      assert {:ok,
+              %{
+                section: returned_section,
+                sentence: returned_sentence,
+                skipped_sentences: skipped
+              }} =
+               Reader.skip_to_next_section(document.id, section1.id, sentence1.id)
+
+      assert returned_section.id == section3.id
+      assert returned_sentence.id == sentence3.id
+      # Should skip 1 (from section1) + 2 (from section2) = 3 total
+      assert skipped == 3
+    end
+
+    test "lands on last section when it's the only one with content" do
+      user = create_user()
+      document = create_document(user.id)
+      section1 = create_section(document.id, 1, %{title: "Chapter 1"})
+      section2 = create_section(document.id, 2, %{title: "Chapter 2"})
+      sentence1 = create_sentence(section1.id, 1, "Sentence in chapter 1.")
+      sentence2 = create_sentence(section2.id, 1, "Sentence in chapter 2.")
+
+      assert {:ok,
+              %{
+                section: returned_section,
+                sentence: returned_sentence,
+                skipped_sentences: skipped
+              }} =
+               Reader.skip_to_next_section(document.id, section1.id, sentence1.id)
+
+      # Cannot skip last section, so we land on it
+      assert returned_section.id == section2.id
+      assert returned_sentence.id == sentence2.id
+      assert skipped == 1
+    end
+  end
+
   describe "log_event/3" do
     test "logs enter_sentence event" do
       user = create_user()
