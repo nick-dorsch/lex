@@ -216,6 +216,93 @@ defmodule Lex.LibraryTest do
                Library.import_epub("/nonexistent/file.epub", user_id: user.id)
     end
 
+    test "returns validation error when user does not exist" do
+      invalid_user_id = -1
+
+      assert {:error, {:validation_failed, changeset}} =
+               Library.import_epub("test/fixtures/epubs/el_principito.epub",
+                 user_id: invalid_user_id
+               )
+
+      errors =
+        Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
+          Enum.reduce(opts, msg, fn {key, value}, acc ->
+            String.replace(acc, "%{#{key}}", to_string(value))
+          end)
+        end)
+
+      assert "does not exist" in errors.user_id
+    end
+
+    test "skips malformed NLP tokens and continues import", %{user: user} do
+      :meck.new(Lex.Text.NLP, [:passthrough])
+
+      :meck.expect(Lex.Text.NLP, :process_text, fn _text, _opts ->
+        {:ok,
+         [
+           %{
+             "position" => 1,
+             "text" => "Hola ???.",
+             "char_start" => 0,
+             "char_end" => 9,
+             "tokens" => [
+               %{
+                 "position" => 1,
+                 "surface" => "Hola",
+                 "normalized_surface" => "hola",
+                 "lemma" => "hola",
+                 "pos" => "INTJ",
+                 "is_punctuation" => false,
+                 "char_start" => 0,
+                 "char_end" => 4
+               },
+               %{
+                 "position" => 2,
+                 "surface" => "   ",
+                 "normalized_surface" => "",
+                 "lemma" => nil,
+                 "pos" => "X",
+                 "is_punctuation" => false,
+                 "char_start" => 5,
+                 "char_end" => 8
+               },
+               %{
+                 "position" => 3,
+                 "surface" => ".",
+                 "normalized_surface" => ".",
+                 "lemma" => ".",
+                 "pos" => "PUNCT",
+                 "is_punctuation" => true,
+                 "char_start" => 8,
+                 "char_end" => 9
+               }
+             ]
+           }
+         ]}
+      end)
+
+      try do
+        path = "test/fixtures/epubs/el_principito.epub"
+
+        assert {:ok, document} = Library.import_epub(path, user_id: user.id)
+        assert document.status == "ready"
+
+        sections = Repo.all(from(s in Section, where: s.document_id == ^document.id))
+        [section] = sections
+
+        [sentence] = Repo.all(from(s in Sentence, where: s.section_id == ^section.id))
+
+        tokens =
+          Repo.all(from(t in Token, where: t.sentence_id == ^sentence.id, order_by: t.position))
+
+        assert length(tokens) == 2
+        assert Enum.at(tokens, 0).surface == "Hola"
+        assert Enum.at(tokens, 1).surface == "."
+      after
+        :meck.unload(Lex.Text.NLP)
+      end
+    end
+
     test "returns error when NLP fails", %{user: user} do
       :meck.new(Lex.Text.NLP, [:passthrough])
 

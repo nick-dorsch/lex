@@ -78,7 +78,6 @@ defmodule Lex.Text.NLPTest do
         assert_receive {:cmd_called, "python", args, opts}
         assert "priv/python/lex_nlp.py" in args
         assert opts[:stderr_to_stdout] == true
-        assert opts[:timeout] == 30_000
       after
         :meck.unload(System)
       end
@@ -116,11 +115,12 @@ defmodule Lex.Text.NLPTest do
       :meck.new(System, [:passthrough])
 
       :meck.expect(System, :cmd, fn _, _, _ ->
-        {"", {nil, :timeout}}
+        Process.sleep(50)
+        {"", 0}
       end)
 
       try do
-        assert {:error, :timeout} = NLP.process_text("Hola")
+        assert {:error, :timeout} = NLP.process_text("Hola", timeout: 1)
       after
         :meck.unload(System)
       end

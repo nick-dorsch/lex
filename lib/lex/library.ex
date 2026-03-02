@@ -5,6 +5,7 @@ defmodule Lex.Library do
 
   import Ecto.Query
 
+  alias Lex.Accounts.User
   alias Lex.Library.{Document, EPUB, ImportTracker, ImportWorker, Section}
   alias Lex.Repo
   alias Lex.Text.{Lexeme, NLP, Sentence, Token}
@@ -53,18 +54,42 @@ defmodule Lex.Library do
   def import_epub(file_path, opts \\ []) do
     user_id = Keyword.fetch!(opts, :user_id)
     source_file = Keyword.get(opts, :source_file, file_path)
+    transaction_timeout = Keyword.get(opts, :transaction_timeout, :infinity)
 
-    Repo.transaction(fn ->
-      with {:ok, document} <- create_document(file_path, source_file, user_id),
-           {:ok, _sections} <- process_chapters(document, file_path) do
-        finalize_document(document)
-      else
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
-    |> case do
-      {:ok, document} -> {:ok, document}
+    with :ok <- ensure_user_exists(user_id),
+         {:ok, document} <-
+           Repo.transaction(
+             fn ->
+               with {:ok, document} <- create_document(file_path, source_file, user_id),
+                    {:ok, _sections} <- process_chapters(document, file_path) do
+                 finalize_document(document)
+               else
+                 {:error, reason} -> Repo.rollback(reason)
+               end
+             end,
+             timeout: transaction_timeout
+           ) do
+      {:ok, document}
+    else
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp ensure_user_exists(user_id) do
+    user_exists? =
+      User
+      |> where([u], u.id == ^user_id)
+      |> Repo.exists?()
+
+    if user_exists? do
+      :ok
+    else
+      changeset =
+        %Document{}
+        |> Ecto.Changeset.change()
+        |> Ecto.Changeset.add_error(:user_id, "does not exist")
+
+      {:error, {:validation_failed, changeset}}
     end
   end
 
@@ -100,8 +125,18 @@ defmodule Lex.Library do
           end)
 
         case Enum.find(results, &match?({:error, _}, &1)) do
-          nil -> {:ok, Enum.map(results, fn {:ok, section} -> section end)}
-          {:error, reason} -> {:error, reason}
+          nil ->
+            sections =
+              results
+              |> Enum.flat_map(fn
+                {:ok, section} -> [section]
+                {:skip, _reason} -> []
+              end)
+
+            {:ok, sections}
+
+          {:error, reason} ->
+            {:error, reason}
         end
 
       {:error, reason} ->
@@ -110,7 +145,6 @@ defmodule Lex.Library do
   end
 
   defp process_chapter(document, file_path, chapter) do
-    # Create section
     section_attrs = %{
       document_id: document.id,
       position: chapter.position,
@@ -118,10 +152,13 @@ defmodule Lex.Library do
       source_href: chapter.href
     }
 
-    with {:ok, section} <- create_section(section_attrs),
-         {:ok, chapter_text} <- EPUB.get_chapter_content(file_path, chapter.href) do
+    with {:ok, chapter_text} <- EPUB.get_chapter_content(file_path, chapter.href),
+         {:ok, section} <- create_section(section_attrs) do
       process_chapter_text(section, chapter_text, document.language, chapter.title)
     else
+      {:error, :empty_chapter} ->
+        {:skip, :empty_chapter}
+
       {:error, %Ecto.Changeset{} = changeset} ->
         {:error, {:validation_failed, changeset}}
 
@@ -187,25 +224,82 @@ defmodule Lex.Library do
       end)
 
     case Enum.find(results, &match?({:error, _}, &1)) do
-      nil -> {:ok, Enum.map(results, fn {:ok, token} -> token end)}
-      {:error, reason} -> {:error, reason}
+      nil ->
+        tokens =
+          results
+          |> Enum.flat_map(fn
+            {:ok, token} -> [token]
+            {:skipped, _reason} -> []
+          end)
+
+        {:ok, tokens}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
   defp process_token(sentence, token_data, position, language) do
-    normalized_lemma = token_data["normalized_surface"]
-    lemma = token_data["lemma"]
-    pos = token_data["pos"]
+    surface = token_data["surface"] |> clean_string()
 
+    normalized_surface =
+      token_data["normalized_surface"]
+      |> clean_string()
+      |> fallback(surface)
+
+    lemma =
+      token_data["lemma"]
+      |> clean_string()
+      |> fallback(normalized_surface)
+
+    pos = token_data["pos"] |> clean_string()
+
+    if is_nil(surface) or is_nil(normalized_surface) or is_nil(lemma) or is_nil(pos) do
+      raw_surface = Map.get(token_data, "surface")
+      raw_lemma = Map.get(token_data, "lemma")
+      raw_normalized_surface = Map.get(token_data, "normalized_surface")
+      raw_pos = Map.get(token_data, "pos")
+
+      Logger.warning(
+        "Skipping malformed token at sentence_id=#{sentence.id} position=#{position} " <>
+          "surface=#{inspect(raw_surface)} lemma=#{inspect(raw_lemma)} " <>
+          "normalized_surface=#{inspect(raw_normalized_surface)} pos=#{inspect(raw_pos)}"
+      )
+
+      {:skipped, :invalid_token_fields}
+    else
+      create_token_and_lexeme(
+        sentence,
+        token_data,
+        position,
+        language,
+        surface,
+        normalized_surface,
+        lemma,
+        pos
+      )
+    end
+  end
+
+  defp create_token_and_lexeme(
+         sentence,
+         token_data,
+         position,
+         language,
+         surface,
+         normalized_surface,
+         lemma,
+         pos
+       ) do
     # Find or create lexeme
-    case find_or_create_lexeme(language, normalized_lemma, lemma, pos) do
+    case find_or_create_lexeme(language, normalized_surface, lemma, pos) do
       {:ok, lexeme} ->
         token_attrs = %{
           sentence_id: sentence.id,
           lexeme_id: lexeme.id,
           position: position,
-          surface: token_data["surface"],
-          normalized_surface: normalized_lemma,
+          surface: surface,
+          normalized_surface: normalized_surface,
           lemma: lemma,
           pos: pos,
           is_punctuation: token_data["is_punctuation"],
@@ -225,6 +319,20 @@ defmodule Lex.Library do
         {:error, {:validation_failed, changeset}}
     end
   end
+
+  defp clean_string(nil), do: nil
+
+  defp clean_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp clean_string(value), do: to_string(value) |> clean_string()
+
+  defp fallback(nil, value), do: value
+  defp fallback(value, _fallback), do: value
 
   defp find_or_create_lexeme(language, normalized_lemma, lemma, pos) do
     lexeme_key = [language: language, normalized_lemma: normalized_lemma, pos: pos]
@@ -305,7 +413,7 @@ defmodule Lex.Library do
               fn ->
                 ImportWorker.run(file_path, user_id, opts)
               end,
-              restart: :transient
+              restart: :temporary
             )
 
             {:ok, :started}

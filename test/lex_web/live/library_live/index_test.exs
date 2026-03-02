@@ -31,6 +31,15 @@ defmodule LexWeb.LibraryLive.IndexTest do
       assert html =~ "Set CALIBRE_LIBRARY_PATH"
     end
 
+    test "creates default user when no authenticated user is available", %{conn: conn} do
+      assert Repo.aggregate(User, :count, :id) == 0
+
+      {:ok, _view, _html} = live(conn, "/library")
+
+      assert Repo.aggregate(User, :count, :id) == 1
+      assert Repo.get_by(User, email: "default@lex.local")
+    end
+
     test "renders list of ready documents", %{conn: conn} do
       user = create_user()
       document = create_ready_document(user)

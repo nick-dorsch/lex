@@ -11,6 +11,7 @@ defmodule Lex.Text.NLP do
 
   ## Options
     - `:language` - Language code (default: "es")
+    - `:timeout` - Command timeout in milliseconds (default: 30000)
 
   ## Returns
     - `{:ok, sentences_list}` - List of sentence maps with tokens
@@ -26,6 +27,7 @@ defmodule Lex.Text.NLP do
     temp_dir = System.tmp_dir!()
     input_file = Path.join(temp_dir, "lex_nlp_input_#{unique_id()}.txt")
     output_file = Path.join(temp_dir, "lex_nlp_output_#{unique_id()}.json")
+    timeout = Keyword.get(opts, :timeout, @timeout)
 
     try do
       # Write text to input file
@@ -35,27 +37,41 @@ defmodule Lex.Text.NLP do
       args = build_args(input_file, output_file, opts)
 
       # Execute Python script
-      case System.cmd("python", args, stderr_to_stdout: true, timeout: @timeout) do
-        {_, {_, :timeout}} ->
-          {:error, :timeout}
-
-        {output, exit_code} when exit_code != 0 ->
-          {:error, {:python_exit, exit_code, output}}
-
-        {_output, 0} ->
+      case run_python(args, timeout) do
+        {:ok, _output} ->
           parse_output(output_file)
+
+        {:error, reason} ->
+          {:error, reason}
       end
-    rescue
-      e in ErlangError ->
-        if e.original == :enoent do
-          {:error, :python_not_found}
-        else
-          reraise e, __STACKTRACE__
-        end
     after
       # Cleanup temp files
       File.rm(input_file)
       File.rm(output_file)
+    end
+  end
+
+  defp run_python(args, timeout) do
+    task =
+      Task.Supervisor.async_nolink(Lex.Library.ImportTaskSupervisor, fn ->
+        System.cmd("python", args, stderr_to_stdout: true)
+      end)
+
+    case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
+      {:ok, {_output, 0} = result} ->
+        {:ok, result}
+
+      {:ok, {output, exit_code}} ->
+        {:error, {:python_exit, exit_code, output}}
+
+      {:exit, {%ErlangError{original: :enoent}, _stacktrace}} ->
+        {:error, :python_not_found}
+
+      {:exit, reason} ->
+        {:error, {:python_exit, 1, Exception.format_exit(reason)}}
+
+      nil ->
+        {:error, :timeout}
     end
   end
 

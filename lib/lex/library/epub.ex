@@ -5,6 +5,8 @@ defmodule Lex.Library.EPUB do
 
   require Logger
 
+  @mojibake_markers ["Ã", "Â", "â€", "â€“", "â€”", "â€œ", "â€", "â€˜", "â€™", "â€¦"]
+
   @doc """
   Parses metadata from an EPUB file.
 
@@ -218,7 +220,7 @@ defmodule Lex.Library.EPUB do
               {:ok, content}
 
             {:ok, {_, content}} when is_list(content) ->
-              {:ok, List.to_string(content)}
+              {:ok, :erlang.list_to_binary(content)}
 
             {:error, _} ->
               # Try with OEBPS/ prefix (common EPUB structure)
@@ -227,7 +229,7 @@ defmodule Lex.Library.EPUB do
                   {:ok, content}
 
                 {:ok, {_, content}} when is_list(content) ->
-                  {:ok, List.to_string(content)}
+                  {:ok, :erlang.list_to_binary(content)}
 
                 {:error, _} ->
                   # Try with OPS/ prefix (alternative EPUB structure)
@@ -236,7 +238,7 @@ defmodule Lex.Library.EPUB do
                       {:ok, content}
 
                     {:ok, {_, content}} when is_list(content) ->
-                      {:ok, List.to_string(content)}
+                      {:ok, :erlang.list_to_binary(content)}
 
                     {:error, _} ->
                       {:error, :chapter_not_found}
@@ -254,16 +256,130 @@ defmodule Lex.Library.EPUB do
 
   defp html_to_plain_text(html) do
     html
+    |> decode_document_content()
     |> Floki.parse_fragment!()
-    |> extract_text_with_newlines()
+    |> extract_body_text_with_newlines()
     |> decode_html_entities()
+    |> cleanup_noise_lines()
     |> normalize_newlines()
+    |> maybe_repair_mojibake()
     |> String.trim()
   end
 
-  defp extract_text_with_newlines(parsed_html) do
-    parsed_html
-    |> Floki.text(sep: "\n")
+  defp decode_document_content(content) when is_binary(content) do
+    declared_encoding = detect_declared_encoding(content)
+
+    decode_order =
+      [declared_encoding, :utf8, :windows_1252, :latin1]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    decoded =
+      Enum.find_value(decode_order, fn encoding ->
+        case decode_content_with_encoding(content, encoding) do
+          {:ok, text} when is_binary(text) -> text
+          _ -> nil
+        end
+      end)
+
+    decoded || content
+  end
+
+  defp detect_declared_encoding(content) do
+    sample =
+      content
+      |> binary_part(0, min(byte_size(content), 2048))
+      |> :unicode.characters_to_binary(:latin1, :utf8)
+
+    case Regex.run(~r/encoding=["']([^"']+)["']/i, sample, capture: :all_but_first) do
+      [encoding] -> normalize_encoding_name(encoding)
+      _ -> detect_meta_charset(sample)
+    end
+  end
+
+  defp detect_meta_charset(sample) do
+    case Regex.run(~r/charset=([a-zA-Z0-9._-]+)/i, sample, capture: :all_but_first) do
+      [encoding] -> normalize_encoding_name(encoding)
+      _ -> nil
+    end
+  end
+
+  defp normalize_encoding_name(name) do
+    name
+    |> String.downcase()
+    |> String.trim()
+    |> case do
+      "utf-8" -> :utf8
+      "utf8" -> :utf8
+      "iso-8859-1" -> :latin1
+      "iso8859-1" -> :latin1
+      "latin1" -> :latin1
+      "latin-1" -> :latin1
+      "windows-1252" -> :windows_1252
+      "cp1252" -> :windows_1252
+      _ -> nil
+    end
+  end
+
+  defp decode_content_with_encoding(content, :utf8) do
+    if String.valid?(content), do: {:ok, content}, else: :error
+  end
+
+  defp decode_content_with_encoding(content, :latin1) do
+    {:ok, :unicode.characters_to_binary(content, :latin1, :utf8)}
+  rescue
+    _ -> :error
+  end
+
+  defp decode_content_with_encoding(content, :windows_1252) do
+    {:ok, windows_1252_to_utf8(content)}
+  rescue
+    _ -> :error
+  end
+
+  defp decode_content_with_encoding(_content, _encoding), do: :error
+
+  defp windows_1252_to_utf8(content) do
+    content
+    |> :binary.bin_to_list()
+    |> Enum.map(&windows_1252_codepoint/1)
+    |> :unicode.characters_to_binary(:unicode, :utf8)
+  end
+
+  defp windows_1252_codepoint(0x80), do: 0x20AC
+  defp windows_1252_codepoint(0x82), do: 0x201A
+  defp windows_1252_codepoint(0x83), do: 0x0192
+  defp windows_1252_codepoint(0x84), do: 0x201E
+  defp windows_1252_codepoint(0x85), do: 0x2026
+  defp windows_1252_codepoint(0x86), do: 0x2020
+  defp windows_1252_codepoint(0x87), do: 0x2021
+  defp windows_1252_codepoint(0x88), do: 0x02C6
+  defp windows_1252_codepoint(0x89), do: 0x2030
+  defp windows_1252_codepoint(0x8A), do: 0x0160
+  defp windows_1252_codepoint(0x8B), do: 0x2039
+  defp windows_1252_codepoint(0x8C), do: 0x0152
+  defp windows_1252_codepoint(0x8E), do: 0x017D
+  defp windows_1252_codepoint(0x91), do: 0x2018
+  defp windows_1252_codepoint(0x92), do: 0x2019
+  defp windows_1252_codepoint(0x93), do: 0x201C
+  defp windows_1252_codepoint(0x94), do: 0x201D
+  defp windows_1252_codepoint(0x95), do: 0x2022
+  defp windows_1252_codepoint(0x96), do: 0x2013
+  defp windows_1252_codepoint(0x97), do: 0x2014
+  defp windows_1252_codepoint(0x98), do: 0x02DC
+  defp windows_1252_codepoint(0x99), do: 0x2122
+  defp windows_1252_codepoint(0x9A), do: 0x0161
+  defp windows_1252_codepoint(0x9B), do: 0x203A
+  defp windows_1252_codepoint(0x9C), do: 0x0153
+  defp windows_1252_codepoint(0x9E), do: 0x017E
+  defp windows_1252_codepoint(0x9F), do: 0x0178
+  defp windows_1252_codepoint(byte), do: byte
+
+  defp extract_body_text_with_newlines(parsed_html) do
+    case Floki.find(parsed_html, "body") do
+      [] -> Floki.text(parsed_html, sep: "\n")
+      body -> Floki.text(body, sep: "\n")
+    end
   end
 
   defp decode_html_entities(text) do
@@ -294,5 +410,70 @@ defmodule Lex.Library.EPUB do
     |> String.replace(~r/\n{3,}/, "\n\n")
     # Ensure we have paragraph breaks, not excessive whitespace
     |> String.replace(~r/[ \t]*\n[ \t]*/, "\n")
+  end
+
+  defp cleanup_noise_lines(text) do
+    text
+    |> String.split("\n")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&noise_line?/1)
+    |> join_drop_cap_lines()
+    |> Enum.join("\n")
+  end
+
+  defp noise_line?(""), do: false
+
+  defp noise_line?(line) do
+    String.match?(line, ~r/^\d{10,13}(-\d+)?$/) or
+      String.starts_with?(line, "@page") or
+      String.match?(line, ~r/^[.#]?[a-zA-Z0-9_-]+\s*\{.*\}\s*$/)
+  end
+
+  defp join_drop_cap_lines(lines), do: do_join_drop_cap_lines(lines, [])
+
+  defp do_join_drop_cap_lines([], acc), do: Enum.reverse(acc)
+
+  defp do_join_drop_cap_lines([single, next | rest], acc)
+       when byte_size(single) == 1 do
+    if String.match?(next, ~r/^\p{Ll}/u) do
+      do_join_drop_cap_lines([single <> next | rest], acc)
+    else
+      do_join_drop_cap_lines([next | rest], [single | acc])
+    end
+  end
+
+  defp do_join_drop_cap_lines([line | rest], acc), do: do_join_drop_cap_lines(rest, [line | acc])
+
+  defp maybe_repair_mojibake(text) do
+    if String.contains?(text, ["Ã", "Â", "â"]) do
+      repaired =
+        try do
+          :unicode.characters_to_binary(text, :utf8, :latin1)
+        rescue
+          _ -> nil
+        end
+
+      cond do
+        !is_binary(repaired) ->
+          text
+
+        !String.valid?(repaired) ->
+          text
+
+        mojibake_score(repaired) < mojibake_score(text) ->
+          repaired
+
+        true ->
+          text
+      end
+    else
+      text
+    end
+  end
+
+  defp mojibake_score(text) do
+    Enum.reduce(@mojibake_markers, 0, fn marker, acc ->
+      acc + (String.split(text, marker) |> length()) - 1
+    end)
   end
 end

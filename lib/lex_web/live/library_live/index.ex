@@ -5,6 +5,7 @@ defmodule LexWeb.LibraryLive.Index do
   """
   use LexWeb, :live_view
 
+  alias Lex.Accounts.User
   alias Lex.Repo
   alias Lex.Library
   alias Lex.Library.{CalibreScanner, Document, ImportTracker}
@@ -174,8 +175,26 @@ defmodule LexWeb.LibraryLive.Index do
     end
   end
 
-  defp get_user_id(_socket) do
-    1
+  defp get_user_id(socket) do
+    case socket.assigns[:current_user] do
+      %{id: user_id} -> user_id
+      _ -> ensure_default_user_id()
+    end
+  end
+
+  defp ensure_default_user_id do
+    case Repo.one(from(u in User, order_by: [asc: u.id], limit: 1, select: u.id)) do
+      user_id when is_integer(user_id) ->
+        user_id
+
+      nil ->
+        attrs = %{name: "Default User", email: "default@lex.local", primary_language: "en"}
+
+        case %User{} |> User.changeset(attrs) |> Repo.insert() do
+          {:ok, user} -> user.id
+          {:error, _changeset} -> Repo.get_by!(User, email: attrs.email).id
+        end
+    end
   end
 
   defp calibre_available? do

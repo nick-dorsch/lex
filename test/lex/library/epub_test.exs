@@ -256,6 +256,255 @@ defmodule Lex.Library.EPUBTest do
       File.rm_rf!(temp_dir)
     end
 
+    test "preserves UTF-8 characters in chapter content" do
+      temp_dir =
+        Path.join(System.tmp_dir!(), "lex_utf8_test_#{:erlang.unique_integer([:positive])}")
+
+      File.mkdir_p!(temp_dir)
+
+      build_dir = Path.join(temp_dir, "utf8_test")
+      File.mkdir_p!(build_dir)
+
+      File.write!(Path.join(build_dir, "mimetype"), "application/epub+zip")
+
+      meta_inf_dir = Path.join(build_dir, "META-INF")
+      File.mkdir_p!(meta_inf_dir)
+
+      container_xml = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+        <rootfiles>
+          <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+        </rootfiles>
+      </container>
+      """
+
+      File.write!(Path.join(meta_inf_dir, "container.xml"), container_xml)
+
+      oebps_dir = Path.join(build_dir, "OEBPS")
+      File.mkdir_p!(oebps_dir)
+
+      xhtml_content = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE html>
+      <html xmlns="http://www.w3.org/1999/xhtml">
+      <head><title>Prueba UTF-8</title></head>
+      <body>
+        <p>¡Un día vi ponerse el sol cuarenta y tres veces!</p>
+      </body>
+      </html>
+      """
+
+      File.write!(Path.join(oebps_dir, "chapter.xhtml"), xhtml_content)
+
+      opf = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid">
+        <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+          <dc:title>UTF-8 Test</dc:title>
+          <dc:creator>Test</dc:creator>
+          <dc:language>es</dc:language>
+          <dc:identifier id="bookid">urn:uuid:test-utf8</dc:identifier>
+        </metadata>
+        <manifest>
+          <item id="chapter1" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+        </manifest>
+        <spine>
+          <itemref idref="chapter1"/>
+        </spine>
+      </package>
+      """
+
+      File.write!(Path.join(oebps_dir, "content.opf"), opf)
+
+      epub_path = Path.join(temp_dir, "utf8_test.epub")
+
+      files = [
+        {~c"mimetype", File.read!(Path.join(build_dir, "mimetype"))},
+        {~c"META-INF/container.xml", File.read!(Path.join(meta_inf_dir, "container.xml"))},
+        {~c"OEBPS/content.opf", File.read!(Path.join(oebps_dir, "content.opf"))},
+        {~c"OEBPS/chapter.xhtml", File.read!(Path.join(oebps_dir, "chapter.xhtml"))}
+      ]
+
+      :zip.create(String.to_charlist(epub_path), files,
+        compress: [~c".xhtml", ~c".opf", ~c".xml"]
+      )
+
+      assert {:ok, content} = EPUB.get_chapter_content(epub_path, "chapter.xhtml")
+      assert content =~ "¡Un día vi ponerse el sol cuarenta y tres veces!"
+      refute content =~ "Â¡"
+      refute content =~ "dÃ"
+
+      File.rm_rf!(temp_dir)
+    end
+
+    test "extracts only body text and excludes head metadata" do
+      temp_dir =
+        Path.join(System.tmp_dir!(), "lex_body_only_test_#{:erlang.unique_integer([:positive])}")
+
+      File.mkdir_p!(temp_dir)
+
+      build_dir = Path.join(temp_dir, "body_only_test")
+      File.mkdir_p!(build_dir)
+
+      File.write!(Path.join(build_dir, "mimetype"), "application/epub+zip")
+
+      meta_inf_dir = Path.join(build_dir, "META-INF")
+      File.mkdir_p!(meta_inf_dir)
+
+      container_xml = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+        <rootfiles>
+          <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+        </rootfiles>
+      </container>
+      """
+
+      File.write!(Path.join(meta_inf_dir, "container.xml"), container_xml)
+
+      oebps_dir = Path.join(build_dir, "OEBPS")
+      File.mkdir_p!(oebps_dir)
+
+      xhtml_content = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <html xmlns="http://www.w3.org/1999/xhtml">
+      <head>
+        <title>9788494566110-7</title>
+        <style>@page {padding: 0pt; margin:0pt} body { text-align: center; }</style>
+      </head>
+      <body>
+        <p>Rió, tocó la cuerda e hizo mover la polea.</p>
+      </body>
+      </html>
+      """
+
+      File.write!(Path.join(oebps_dir, "chapter.xhtml"), xhtml_content)
+
+      opf = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid">
+        <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+          <dc:title>Body Test</dc:title>
+          <dc:creator>Test</dc:creator>
+          <dc:language>es</dc:language>
+          <dc:identifier id="bookid">urn:uuid:test-body-only</dc:identifier>
+        </metadata>
+        <manifest>
+          <item id="chapter1" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+        </manifest>
+        <spine>
+          <itemref idref="chapter1"/>
+        </spine>
+      </package>
+      """
+
+      File.write!(Path.join(oebps_dir, "content.opf"), opf)
+
+      epub_path = Path.join(temp_dir, "body_only_test.epub")
+
+      files = [
+        {~c"mimetype", File.read!(Path.join(build_dir, "mimetype"))},
+        {~c"META-INF/container.xml", File.read!(Path.join(meta_inf_dir, "container.xml"))},
+        {~c"OEBPS/content.opf", File.read!(Path.join(oebps_dir, "content.opf"))},
+        {~c"OEBPS/chapter.xhtml", File.read!(Path.join(oebps_dir, "chapter.xhtml"))}
+      ]
+
+      :zip.create(String.to_charlist(epub_path), files,
+        compress: [~c".xhtml", ~c".opf", ~c".xml"]
+      )
+
+      assert {:ok, content} = EPUB.get_chapter_content(epub_path, "chapter.xhtml")
+      assert content =~ "Rió, tocó la cuerda e hizo mover la polea."
+      refute content =~ "9788494566110-7"
+      refute content =~ "@page"
+
+      File.rm_rf!(temp_dir)
+    end
+
+    test "decodes ISO-8859-1 chapter content using declared encoding" do
+      temp_dir =
+        Path.join(System.tmp_dir!(), "lex_latin1_test_#{:erlang.unique_integer([:positive])}")
+
+      File.mkdir_p!(temp_dir)
+
+      build_dir = Path.join(temp_dir, "latin1_test")
+      File.mkdir_p!(build_dir)
+
+      File.write!(Path.join(build_dir, "mimetype"), "application/epub+zip")
+
+      meta_inf_dir = Path.join(build_dir, "META-INF")
+      File.mkdir_p!(meta_inf_dir)
+
+      container_xml = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+        <rootfiles>
+          <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+        </rootfiles>
+      </container>
+      """
+
+      File.write!(Path.join(meta_inf_dir, "container.xml"), container_xml)
+
+      oebps_dir = Path.join(build_dir, "OEBPS")
+      File.mkdir_p!(oebps_dir)
+
+      xhtml_latin1 =
+        """
+        <?xml version="1.0" encoding="ISO-8859-1"?>
+        <html xmlns="http://www.w3.org/1999/xhtml">
+        <head><meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1"/></head>
+        <body>
+          <p>Página en español: ¡dónde está?</p>
+        </body>
+        </html>
+        """
+        |> :unicode.characters_to_binary(:utf8, :latin1)
+
+      File.write!(Path.join(oebps_dir, "chapter.xhtml"), xhtml_latin1)
+
+      opf = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid">
+        <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+          <dc:title>Latin1 Test</dc:title>
+          <dc:creator>Test</dc:creator>
+          <dc:language>es</dc:language>
+          <dc:identifier id="bookid">urn:uuid:test-latin1</dc:identifier>
+        </metadata>
+        <manifest>
+          <item id="chapter1" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+        </manifest>
+        <spine>
+          <itemref idref="chapter1"/>
+        </spine>
+      </package>
+      """
+
+      File.write!(Path.join(oebps_dir, "content.opf"), opf)
+
+      epub_path = Path.join(temp_dir, "latin1_test.epub")
+
+      files = [
+        {~c"mimetype", File.read!(Path.join(build_dir, "mimetype"))},
+        {~c"META-INF/container.xml", File.read!(Path.join(meta_inf_dir, "container.xml"))},
+        {~c"OEBPS/content.opf", File.read!(Path.join(oebps_dir, "content.opf"))},
+        {~c"OEBPS/chapter.xhtml", File.read!(Path.join(oebps_dir, "chapter.xhtml"))}
+      ]
+
+      :zip.create(String.to_charlist(epub_path), files,
+        compress: [~c".xhtml", ~c".opf", ~c".xml"]
+      )
+
+      assert {:ok, content} = EPUB.get_chapter_content(epub_path, "chapter.xhtml")
+      assert content =~ "Página en español: ¡dónde está?"
+      refute content =~ "PÃ¡gina"
+      refute content =~ "dÃ³nde"
+
+      File.rm_rf!(temp_dir)
+    end
+
     test "returns error for non-existent file" do
       assert {:error, :file_not_found} =
                EPUB.get_chapter_content("/path/to/nonexistent.epub", "chapter.xhtml")

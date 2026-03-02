@@ -21,6 +21,13 @@ tasks:
       - echo "Running Elixir tests..."
       - mix test
 
+  reset-db:
+    desc: Reset the database (drop, create, migrate)
+    silent: true
+    cmds:
+      - echo "Resetting database..."
+      - mix ecto.reset
+
   nlp-demo:
     desc: Run CLI demo with sample Spanish text (use TEXT="your text" to customize)
     aliases: [nlp]
