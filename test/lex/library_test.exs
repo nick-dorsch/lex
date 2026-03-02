@@ -581,4 +581,316 @@ defmodule Lex.LibraryTest do
       end
     end
   end
+
+  describe "import_epub_async/3" do
+    setup do
+      # Create a test user with unique email
+      user =
+        %Lex.Accounts.User{}
+        |> Ecto.Changeset.change(%{
+          name: "Test User",
+          email: "test_async#{System.unique_integer([:positive])}@example.com",
+          primary_language: "en"
+        })
+        |> Repo.insert!()
+
+      # Use unique file paths to avoid pollution
+      file_path = "/tmp/test_async_#{System.unique_integer([:positive])}.epub"
+
+      # Copy fixture file to temp location
+      File.cp!("test/fixtures/epubs/el_principito.epub", file_path)
+
+      on_exit(fn ->
+        File.rm_rf(file_path)
+        ImportTracker.reset_status(file_path)
+      end)
+
+      {:ok, user: user, file_path: file_path}
+    end
+
+    test "starts async import and returns :started", %{user: user, file_path: file_path} do
+      :meck.new(Lex.Text.NLP, [:passthrough])
+
+      :meck.expect(Lex.Text.NLP, :process_text, fn _text, _opts ->
+        {:ok,
+         [
+           %{
+             "position" => 1,
+             "text" => "Test sentence.",
+             "char_start" => 0,
+             "char_end" => 14,
+             "tokens" => [
+               %{
+                 "position" => 1,
+                 "surface" => "Test",
+                 "normalized_surface" => "test",
+                 "lemma" => "test",
+                 "pos" => "NOUN",
+                 "is_punctuation" => false,
+                 "char_start" => 0,
+                 "char_end" => 4
+               },
+               %{
+                 "position" => 2,
+                 "surface" => "sentence",
+                 "normalized_surface" => "sentence",
+                 "lemma" => "sentence",
+                 "pos" => "NOUN",
+                 "is_punctuation" => false,
+                 "char_start" => 5,
+                 "char_end" => 13
+               },
+               %{
+                 "position" => 3,
+                 "surface" => ".",
+                 "normalized_surface" => ".",
+                 "lemma" => ".",
+                 "pos" => "PUNCT",
+                 "is_punctuation" => true,
+                 "char_start" => 13,
+                 "char_end" => 14
+               }
+             ]
+           }
+         ]}
+      end)
+
+      try do
+        assert {:ok, :started} = Library.import_epub_async(file_path, user.id)
+
+        # Wait for the import to complete
+        Process.sleep(200)
+
+        # Verify ImportTracker was updated
+        assert match?({:completed, _}, ImportTracker.get_status(file_path))
+
+        # Verify document was created
+        document = Repo.one!(from(d in Document, where: d.source_file == ^file_path))
+        assert document.user_id == user.id
+        assert document.status == "ready"
+      after
+        :meck.unload(Lex.Text.NLP)
+      end
+    end
+
+    test "returns :already_importing when import already in progress", %{
+      user: user,
+      file_path: file_path
+    } do
+      # Manually mark as importing in tracker
+      ImportTracker.start_import(file_path, user.id)
+
+      assert {:ok, :already_importing} = Library.import_epub_async(file_path, user.id)
+    end
+
+    test "returns :already_imported when document exists", %{user: user} do
+      :meck.new(Lex.Text.NLP, [:passthrough])
+
+      :meck.expect(Lex.Text.NLP, :process_text, fn _text, _opts ->
+        {:ok,
+         [
+           %{
+             "position" => 1,
+             "text" => "Test sentence.",
+             "char_start" => 0,
+             "char_end" => 14,
+             "tokens" => [
+               %{
+                 "position" => 1,
+                 "surface" => "Test",
+                 "normalized_surface" => "test",
+                 "lemma" => "test",
+                 "pos" => "NOUN",
+                 "is_punctuation" => false,
+                 "char_start" => 0,
+                 "char_end" => 4
+               }
+             ]
+           }
+         ]}
+      end)
+
+      try do
+        path = "test/fixtures/epubs/el_principito.epub"
+        source_file = "/custom/source/path.epub"
+
+        # First, import synchronously
+        assert {:ok, _document} =
+                 Library.import_epub(path, user_id: user.id, source_file: source_file)
+
+        # Now try async import with same source_file
+        assert {:ok, :already_imported} =
+                 Library.import_epub_async(path, user.id, source_file: source_file)
+      after
+        :meck.unload(Lex.Text.NLP)
+      end
+    end
+
+    test "handles import errors gracefully", %{user: user} do
+      # Create a mock EPUB file path that doesn't exist
+      nonexistent_file = "/nonexistent/path/book_#{System.unique_integer([:positive])}.epub"
+      user_id = user.id
+
+      topic = ImportTracker.topic(user_id)
+      PubSub.subscribe(Lex.PubSub, topic)
+
+      assert {:ok, :started} = Library.import_epub_async(nonexistent_file, user_id)
+
+      # Wait for error broadcast
+      assert_receive {:import_failed, ^nonexistent_file, _reason, ^user_id}, 1000
+
+      # Verify tracker shows error state
+      assert match?({:error, _}, ImportTracker.get_status(nonexistent_file))
+    end
+
+    test "broadcasts PubSub events on completion", %{user: user, file_path: file_path} do
+      :meck.new(Lex.Text.NLP, [:passthrough])
+
+      :meck.expect(Lex.Text.NLP, :process_text, fn _text, _opts ->
+        {:ok,
+         [
+           %{
+             "position" => 1,
+             "text" => "Test sentence.",
+             "char_start" => 0,
+             "char_end" => 14,
+             "tokens" => [
+               %{
+                 "position" => 1,
+                 "surface" => "Test",
+                 "normalized_surface" => "test",
+                 "lemma" => "test",
+                 "pos" => "NOUN",
+                 "is_punctuation" => false,
+                 "char_start" => 0,
+                 "char_end" => 4
+               }
+             ]
+           }
+         ]}
+      end)
+
+      try do
+        user_id = user.id
+        topic = ImportTracker.topic(user_id)
+        PubSub.subscribe(Lex.PubSub, topic)
+
+        assert {:ok, :started} = Library.import_epub_async(file_path, user_id)
+
+        # Should receive started event
+        assert_receive {:import_started, ^file_path, ^user_id}, 1000
+
+        # Should receive completed event
+        assert_receive {:import_completed, ^file_path, document_id, ^user_id}, 2000
+        assert is_integer(document_id)
+
+        # Verify document was created
+        document = Repo.get!(Document, document_id)
+        assert document.user_id == user_id
+      after
+        :meck.unload(Lex.Text.NLP)
+      end
+    end
+
+    test "handles concurrent import requests idempotently", %{user: user, file_path: file_path} do
+      :meck.new(Lex.Text.NLP, [:passthrough])
+
+      :meck.expect(Lex.Text.NLP, :process_text, fn _text, _opts ->
+        # Add small delay to simulate processing
+        Process.sleep(50)
+
+        {:ok,
+         [
+           %{
+             "position" => 1,
+             "text" => "Test sentence.",
+             "char_start" => 0,
+             "char_end" => 14,
+             "tokens" => [
+               %{
+                 "position" => 1,
+                 "surface" => "Test",
+                 "normalized_surface" => "test",
+                 "lemma" => "test",
+                 "pos" => "NOUN",
+                 "is_punctuation" => false,
+                 "char_start" => 0,
+                 "char_end" => 4
+               }
+             ]
+           }
+         ]}
+      end)
+
+      try do
+        # Start multiple concurrent async imports
+        results =
+          for _ <- 1..5 do
+            Task.async(fn ->
+              Library.import_epub_async(file_path, user.id)
+            end)
+          end
+          |> Task.await_many(5000)
+
+        # Only one should return :started, others should return :already_importing
+        started_count = Enum.count(results, &(&1 == {:ok, :started}))
+        already_importing_count = Enum.count(results, &(&1 == {:ok, :already_importing}))
+
+        assert started_count == 1
+        assert already_importing_count == 4
+
+        # Wait for import to complete
+        Process.sleep(300)
+
+        # Verify only one document was created
+        documents = Repo.all(from(d in Document, where: d.source_file == ^file_path))
+        assert length(documents) == 1
+      after
+        :meck.unload(Lex.Text.NLP)
+      end
+    end
+
+    test "uses source_file override when provided", %{user: user, file_path: file_path} do
+      :meck.new(Lex.Text.NLP, [:passthrough])
+
+      :meck.expect(Lex.Text.NLP, :process_text, fn _text, _opts ->
+        {:ok,
+         [
+           %{
+             "position" => 1,
+             "text" => "Test sentence.",
+             "char_start" => 0,
+             "char_end" => 14,
+             "tokens" => [
+               %{
+                 "position" => 1,
+                 "surface" => "Test",
+                 "normalized_surface" => "test",
+                 "lemma" => "test",
+                 "pos" => "NOUN",
+                 "is_punctuation" => false,
+                 "char_start" => 0,
+                 "char_end" => 4
+               }
+             ]
+           }
+         ]}
+      end)
+
+      try do
+        source_file = "/custom/source/path_#{System.unique_integer([:positive])}.epub"
+
+        assert {:ok, :started} =
+                 Library.import_epub_async(file_path, user.id, source_file: source_file)
+
+        Process.sleep(200)
+
+        # Verify document was created with the override path
+        document = Repo.one!(from(d in Document, where: d.source_file == ^source_file))
+        assert document.user_id == user.id
+      after
+        :meck.unload(Lex.Text.NLP)
+      end
+    end
+  end
 end

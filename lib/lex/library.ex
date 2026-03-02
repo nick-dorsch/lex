@@ -296,16 +296,23 @@ defmodule Lex.Library do
         {:ok, :already_imported}
 
       true ->
-        # Start supervised task
-        Task.Supervisor.start_child(
-          Lex.Library.ImportTaskSupervisor,
-          fn ->
-            ImportWorker.run(file_path, user_id, opts)
-          end,
-          restart: :transient
-        )
+        # Try to mark import as started first (this is atomic)
+        case ImportTracker.start_import(file_path, user_id) do
+          :ok ->
+            # Start supervised task to do the actual import
+            Task.Supervisor.start_child(
+              Lex.Library.ImportTaskSupervisor,
+              fn ->
+                ImportWorker.run(file_path, user_id, opts)
+              end,
+              restart: :transient
+            )
 
-        {:ok, :started}
+            {:ok, :started}
+
+          :already_importing ->
+            {:ok, :already_importing}
+        end
     end
   end
 

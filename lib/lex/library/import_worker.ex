@@ -15,10 +15,12 @@ defmodule Lex.Library.ImportWorker do
 
   This function is designed to be run within a supervised Task.
   It:
-  1. Marks the import as started in ImportTracker
-  2. Calls Library.import_epub/2 to perform the actual import
-  3. On success: marks complete in tracker and broadcasts event
-  4. On failure: marks failed in tracker and broadcasts event with error
+  1. Calls Library.import_epub/2 to perform the actual import
+  2. On success: marks complete in tracker and broadcasts event
+  3. On failure: marks failed in tracker and broadcasts event with error
+
+  Note: The import must already be marked as started via ImportTracker.start_import/2
+  before calling this function.
 
   ## Parameters
     - file_path: Path to the EPUB file
@@ -27,16 +29,8 @@ defmodule Lex.Library.ImportWorker do
   """
   @spec run(String.t(), integer(), keyword()) :: :ok
   def run(file_path, user_id, opts) do
-    # Mark import as started
-    case ImportTracker.start_import(file_path, user_id) do
-      :ok ->
-        Logger.info("Starting async import for #{file_path} (user: #{user_id})")
-        do_import(file_path, user_id, opts)
-
-      :already_importing ->
-        Logger.debug("Import already in progress for #{file_path}")
-        :ok
-    end
+    Logger.info("Running async import for #{file_path} (user: #{user_id})")
+    do_import(file_path, user_id, opts)
   end
 
   defp do_import(file_path, user_id, opts) do
@@ -80,7 +74,6 @@ defmodule Lex.Library.ImportWorker do
         String.replace(acc, "%{#{key}}", to_string(value))
       end)
     end)
-    |> Enum.map(fn {k, v} -> "#{k}: #{Enum.join(v, ", ")}" end)
-    |> Enum.join("; ")
+    |> Enum.map_join("; ", fn {k, v} -> "#{k}: #{Enum.join(v, ", ")}" end)
   end
 end
