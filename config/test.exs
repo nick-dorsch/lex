@@ -21,3 +21,9 @@ config :lex, Lex.Repo,
   pool_size: 5
 
 config :lex, :test, debug: false
+
+# LLM Configuration for tests
+config :lex, :llm_api_key, "test_api_key"
+config :lex, :llm_base_url, "https://api.test.openai.com/v1"
+config :lex, :llm_model, "gpt-4o-mini"
+config :lex, :llm_timeout_ms, 5000
