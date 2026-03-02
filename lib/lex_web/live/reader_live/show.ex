@@ -195,6 +195,11 @@ defmodule LexWeb.ReaderLive.Show do
     end
   end
 
+  @impl true
+  def handle_event("dismiss_llm_popup", _params, socket) do
+    dismiss_llm_popup(socket)
+  end
+
   # Handles navigation to next token (w key)
   defp handle_next_token(socket) do
     selectable_indices = selectable_token_indices(socket.assigns.tokens)

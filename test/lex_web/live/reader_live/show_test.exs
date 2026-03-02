@@ -181,6 +181,69 @@ defmodule LexWeb.ReaderLive.ShowTest do
       Lex.LLM.ClientMock.clear_mock()
     end
 
+    test "clicking popup close button hides popup", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "This is a test.")
+      create_tokens_for_sentence(sentence, ["This", "is", "a", "test", "."])
+
+      # Set up mock response
+      Lex.LLM.ClientMock.set_mock_response("Help text")
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Focus a token and show popup
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+
+      # Verify popup is visible
+      assert view |> has_element?("[data-testid=\"llm-popup\"]")
+
+      # Click the close button to hide popup
+      view |> element(".llm-popup-close") |> render_click()
+
+      # Verify popup is hidden
+      refute view |> has_element?("[data-testid=\"llm-popup\"]")
+
+      # Clean up
+      Lex.LLM.ClientMock.clear_mock()
+    end
+
+    test "dismiss_llm_popup event resets popup state", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "This is a test.")
+      create_tokens_for_sentence(sentence, ["This", "is", "a", "test", "."])
+
+      # Set up mock response
+      Lex.LLM.ClientMock.set_mock_response("Help text")
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Focus a token and show popup
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+
+      # Wait for response
+      Process.sleep(200)
+
+      # Verify popup is visible with content
+      assert view |> has_element?("[data-testid=\"llm-popup\"]")
+      popup_html = view |> element("[data-testid=\"llm-popup\"]") |> render()
+      assert popup_html =~ "Help text"
+
+      # Dismiss via direct event (simulating JS hook)
+      _html = render_click(view, :dismiss_llm_popup)
+
+      # Verify popup is hidden
+      refute view |> has_element?("[data-testid=\"llm-popup\"]")
+
+      # Clean up
+      Lex.LLM.ClientMock.clear_mock()
+    end
+
     test "cached response returned immediately without LLM call", %{conn: conn} do
       user = create_user()
       document = create_ready_document(user)
