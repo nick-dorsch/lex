@@ -3,3 +3,246 @@
 @import "tailwindcss/utilities";
 
 /* This file is for your main application CSS */
+
+@layer components {
+  /* Library Page Container */
+  .library-container {
+    @apply max-w-7xl mx-auto px-4 py-8 min-h-screen;
+    background-color: #0f172a;
+  }
+
+  /* Library Header */
+  .library-header {
+    @apply flex items-center justify-between mb-8;
+  }
+
+  .library-header h1 {
+    @apply text-3xl font-bold;
+    color: #f8fafc;
+  }
+
+  /* Refresh Button */
+  .refresh-btn {
+    @apply px-4 py-2 rounded-lg font-medium transition-all duration-200;
+    background-color: transparent;
+    border: 1px solid #334155;
+    color: #94a3b8;
+  }
+
+  .refresh-btn:hover:not(:disabled) {
+    background-color: #1e293b;
+    border-color: #475569;
+    color: #f8fafc;
+  }
+
+  .refresh-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Calibre Notice */
+  .calibre-notice {
+    @apply mb-6 px-4 py-2 rounded-lg;
+    background-color: rgba(56, 189, 248, 0.1);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+  }
+
+  .calibre-notice .notice-text {
+    @apply text-sm font-medium;
+    color: #38bdf8;
+  }
+
+  /* Empty State */
+  .empty-state {
+    @apply flex flex-col items-center justify-center py-20 text-center;
+  }
+
+  .empty-state > p:first-child {
+    @apply text-xl font-medium mb-4;
+    color: #94a3b8;
+  }
+
+  .empty-state .sub-text {
+    @apply text-sm max-w-md;
+    color: #64748b;
+  }
+
+  /* Library Grid */
+  .library-grid {
+    @apply grid gap-6;
+    grid-template-columns: 1fr;
+  }
+
+  @media (min-width: 640px) {
+    .library-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .library-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+
+  /* Library Item Card */
+  .library-item {
+    @apply relative rounded-xl overflow-hidden transition-all duration-200;
+    background-color: #1e293b;
+    border: 1px solid #334155;
+  }
+
+  .library-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.5);
+    border-color: #475569;
+  }
+
+  /* Source Badge */
+  .source-badge {
+    @apply absolute top-3 right-3 px-2 py-1 text-xs font-medium rounded-full;
+  }
+
+  .source-badge.calibre {
+    background-color: rgba(56, 189, 248, 0.2);
+    color: #38bdf8;
+  }
+
+  /* Item Content */
+  .item-content {
+    @apply p-5 pb-16;
+  }
+
+  .item-title {
+    @apply text-lg font-semibold mb-2 leading-tight;
+    color: #f8fafc;
+  }
+
+  .item-author {
+    @apply text-sm;
+    color: #94a3b8;
+  }
+
+  /* Item Actions */
+  .item-actions {
+    @apply absolute bottom-0 left-0 right-0 p-4;
+    background: linear-gradient(to top, #1e293b, transparent);
+  }
+
+  /* Import Button */
+  .import-btn {
+    @apply w-full px-4 py-2.5 rounded-lg font-medium transition-all duration-200;
+    background-color: #38bdf8;
+    color: #0f172a;
+  }
+
+  .import-btn:hover {
+    background-color: #7dd3fc;
+    box-shadow: 0 4px 12px rgba(56, 189, 248, 0.3);
+  }
+
+  /* Importing Indicator */
+  .importing-indicator {
+    @apply flex items-center justify-center gap-3 py-2;
+    color: #94a3b8;
+  }
+
+  .importing-indicator .spinner {
+    @apply w-5 h-5 border-2 rounded-full;
+    border-color: #334155;
+    border-top-color: #38bdf8;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .importing-indicator .status-text {
+    @apply text-sm font-medium;
+  }
+
+  /* Imported Badge */
+  .imported-badge {
+    @apply flex flex-col gap-3;
+  }
+
+  .imported-badge .badge-text {
+    @apply text-xs font-medium uppercase tracking-wider;
+    color: #22c55e;
+  }
+
+  /* Progress Bar */
+  .progress-container {
+    @apply flex items-center gap-3;
+  }
+
+  .progress-bar {
+    @apply flex-1 h-2 rounded-full overflow-hidden;
+    background-color: #334155;
+  }
+
+  .progress-fill {
+    @apply h-full rounded-full transition-all duration-300;
+    background-color: #38bdf8;
+  }
+
+  .progress-text {
+    @apply text-xs font-medium min-w-[36px] text-right;
+    color: #94a3b8;
+  }
+
+  /* Read Button */
+  .read-btn {
+    @apply w-full px-4 py-2.5 rounded-lg font-medium transition-all duration-200;
+    background-color: #334155;
+    color: #f8fafc;
+  }
+
+  .read-btn:hover {
+    background-color: #475569;
+  }
+
+  /* Error State */
+  .library-item.error {
+    border-color: rgba(239, 68, 68, 0.5);
+    background-color: rgba(239, 68, 68, 0.05);
+  }
+
+  .error-state {
+    @apply flex flex-col gap-2;
+  }
+
+  .error-badge {
+    @apply text-xs font-medium uppercase tracking-wider;
+    color: #ef4444;
+  }
+
+  .error-message {
+    @apply text-xs;
+    color: #f87171;
+  }
+
+  .import-btn.retry {
+    background-color: rgba(239, 68, 68, 0.2);
+    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+  }
+
+  .import-btn.retry:hover {
+    background-color: rgba(239, 68, 68, 0.3);
+    color: #f87171;
+  }
+
+  /* State-specific card styles */
+  .library-item.importing {
+    opacity: 0.8;
+  }
+
+  .library-item.imported {
+    border-color: rgba(34, 197, 94, 0.3);
+  }
+}
+
