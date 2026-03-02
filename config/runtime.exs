@@ -29,3 +29,10 @@ if config_env() == :prod do
 
   config :lex, LexWeb.Endpoint, secret_key_base: secret_key_base
 end
+
+# LLM Configuration
+config :lex, :llm_api_key, System.get_env("LLM_API_KEY")
+config :lex, :llm_provider, System.get_env("LLM_PROVIDER", "openai")
+config :lex, :llm_model, System.get_env("LLM_MODEL", "gpt-4o-mini")
+config :lex, :llm_base_url, System.get_env("LLM_BASE_URL", "https://api.openai.com/v1")
+config :lex, :llm_timeout_ms, String.to_integer(System.get_env("LLM_TIMEOUT_MS") || "5000")
