@@ -9,7 +9,8 @@ defmodule Lex.LLM.ClientTest do
       api_key: Application.get_env(:lex, :llm_api_key),
       base_url: Application.get_env(:lex, :llm_base_url),
       model: Application.get_env(:lex, :llm_model),
-      timeout: Application.get_env(:lex, :llm_timeout_ms)
+      timeout: Application.get_env(:lex, :llm_timeout_ms),
+      client: Application.get_env(:lex, :llm_client)
     }
 
     # Ensure test config is set
@@ -24,6 +25,7 @@ defmodule Lex.LLM.ClientTest do
       Application.put_env(:lex, :llm_base_url, original_config.base_url)
       Application.put_env(:lex, :llm_model, original_config.model)
       Application.put_env(:lex, :llm_timeout_ms, original_config.timeout)
+      Application.put_env(:lex, :llm_client, original_config.client)
     end)
 
     :ok
@@ -31,6 +33,8 @@ defmodule Lex.LLM.ClientTest do
 
   describe "stream_chat_completion/2" do
     test "returns error when API key is not configured" do
+      # Temporarily disable mock client to test real configuration checking
+      Application.delete_env(:lex, :llm_client)
       Application.put_env(:lex, :llm_api_key, nil)
 
       messages = [%{role: "user", content: "Hello"}]
@@ -40,6 +44,8 @@ defmodule Lex.LLM.ClientTest do
     end
 
     test "returns error when base URL is not configured" do
+      # Temporarily disable mock client to test real configuration checking
+      Application.delete_env(:lex, :llm_client)
       Application.put_env(:lex, :llm_base_url, nil)
 
       messages = [%{role: "user", content: "Hello"}]

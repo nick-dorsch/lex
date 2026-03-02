@@ -3,7 +3,18 @@ defmodule Lex.LLM.Client do
   HTTP client for streaming LLM chat completions.
 
   Provides a generic interface for OpenAI-compatible streaming APIs using Tesla HTTP client.
+
+  ## Configuration
+
+  By default, this module makes real HTTP requests. For testing, you can configure
+  a mock client:
+
+      config :lex, :llm_client, Lex.LLM.ClientMock
+
+  This is automatically set in `config/test.exs`.
   """
+
+  @behaviour Lex.LLM.ClientBehaviour
 
   require Logger
 
@@ -42,10 +53,20 @@ defmodule Lex.LLM.Client do
 
       {:ok, task} = Lex.LLM.Client.stream_chat_completion(messages, callback)
   """
+  @impl true
   @spec stream_chat_completion(list(message()), chunk_callback()) ::
           {:ok, Task.t()} | {:error, :not_configured}
   def stream_chat_completion(messages, callback)
       when is_list(messages) and is_function(callback, 1) do
+    # Allow injection of mock client for testing
+    case Application.get_env(:lex, :llm_client) do
+      nil -> do_stream_chat_completion(messages, callback)
+      __MODULE__ -> do_stream_chat_completion(messages, callback)
+      mock_module -> mock_module.stream_chat_completion(messages, callback)
+    end
+  end
+
+  defp do_stream_chat_completion(messages, callback) do
     api_key = get_config(:llm_api_key)
     base_url = get_config(:llm_base_url)
 

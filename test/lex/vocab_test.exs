@@ -1341,10 +1341,12 @@ defmodule Lex.VocabTest do
       lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
       token = create_token(sentence.id, lexeme.id, %{position: 1, surface: "hola"})
 
-      # Clear LLM configuration
+      # Clear LLM configuration and disable mock client to test real configuration checking
       original_api_key = Application.get_env(:lex, :llm_api_key)
       original_base_url = Application.get_env(:lex, :llm_base_url)
+      original_client = Application.get_env(:lex, :llm_client)
 
+      Application.delete_env(:lex, :llm_client)
       Application.put_env(:lex, :llm_api_key, nil)
       Application.put_env(:lex, :llm_base_url, nil)
 
@@ -1356,6 +1358,7 @@ defmodule Lex.VocabTest do
       # Restore configuration
       Application.put_env(:lex, :llm_api_key, original_api_key)
       Application.put_env(:lex, :llm_base_url, original_base_url)
+      Application.put_env(:lex, :llm_client, original_client)
     end
 
     test "creates request record for new request" do
