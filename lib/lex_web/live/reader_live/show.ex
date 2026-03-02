@@ -22,7 +22,9 @@ defmodule LexWeb.ReaderLive.Show do
          section: section,
          sentence: sentence,
          tokens: tokens,
-         lexeme_states: lexeme_states
+         lexeme_states: lexeme_states,
+         prev_sentence: prev_sentence,
+         next_sentence: next_sentence
        }} ->
         # Mark lexemes as seen and log enter event when sentence is displayed
         if sentence do
@@ -43,6 +45,8 @@ defmodule LexWeb.ReaderLive.Show do
            sentence: sentence,
            tokens: tokens,
            lexeme_states: lexeme_states,
+           prev_sentence: prev_sentence,
+           next_sentence: next_sentence,
            focused_token_index: 0,
            loading: false,
            user_id: user_id,
@@ -236,6 +240,12 @@ defmodule LexWeb.ReaderLive.Show do
         lexeme_ids = Enum.map(tokens, & &1.lexeme_id) |> Enum.reject(&is_nil/1)
         lexeme_states = load_lexeme_states(user_id, lexeme_ids)
 
+        # Load new adjacent sentences for context
+        prev_sentence = sentence
+
+        next_sentence =
+          load_adjacent_sentence(document.id, new_section.id, new_sentence.id, :next)
+
         {:noreply,
          socket
          |> assign(
@@ -243,6 +253,8 @@ defmodule LexWeb.ReaderLive.Show do
            sentence: new_sentence,
            tokens: tokens,
            lexeme_states: lexeme_states,
+           prev_sentence: prev_sentence,
+           next_sentence: next_sentence,
            focused_token_index: 0,
            help_requested: false
          )}
@@ -277,6 +289,12 @@ defmodule LexWeb.ReaderLive.Show do
         lexeme_ids = Enum.map(tokens, & &1.lexeme_id) |> Enum.reject(&is_nil/1)
         lexeme_states = load_lexeme_states(user_id, lexeme_ids)
 
+        # Load new adjacent sentences for context
+        prev_sentence =
+          load_adjacent_sentence(document.id, new_section.id, new_sentence.id, :previous)
+
+        next_sentence = sentence
+
         {:noreply,
          socket
          |> assign(
@@ -284,6 +302,8 @@ defmodule LexWeb.ReaderLive.Show do
            sentence: new_sentence,
            tokens: tokens,
            lexeme_states: lexeme_states,
+           prev_sentence: prev_sentence,
+           next_sentence: next_sentence,
            focused_token_index: 0,
            help_requested: false
          )}
@@ -332,6 +352,13 @@ defmodule LexWeb.ReaderLive.Show do
         lexeme_ids = Enum.map(tokens, & &1.lexeme_id) |> Enum.reject(&is_nil/1)
         lexeme_states = load_lexeme_states(user_id, lexeme_ids)
 
+        # Load new adjacent sentences for context
+        prev_sentence =
+          load_adjacent_sentence(document.id, new_section.id, new_sentence.id, :previous)
+
+        next_sentence =
+          load_adjacent_sentence(document.id, new_section.id, new_sentence.id, :next)
+
         {:noreply,
          socket
          |> assign(
@@ -339,6 +366,8 @@ defmodule LexWeb.ReaderLive.Show do
            sentence: new_sentence,
            tokens: tokens,
            lexeme_states: lexeme_states,
+           prev_sentence: prev_sentence,
+           next_sentence: next_sentence,
            focused_token_index: 0,
            help_requested: false
          )}
@@ -441,17 +470,43 @@ defmodule LexWeb.ReaderLive.Show do
       lexeme_ids = Enum.map(tokens, & &1.lexeme_id) |> Enum.reject(&is_nil/1)
       lexeme_states = load_lexeme_states(user_id, lexeme_ids)
 
+      # Load previous and next sentences for context
+      {prev_sentence, next_sentence} =
+        if sentence && section do
+          {
+            load_adjacent_sentence(document.id, section.id, sentence.id, :previous),
+            load_adjacent_sentence(document.id, section.id, sentence.id, :next)
+          }
+        else
+          {nil, nil}
+        end
+
       {:ok,
        %{
          document: document,
          section: section,
          sentence: sentence,
          tokens: tokens,
-         lexeme_states: lexeme_states
+         lexeme_states: lexeme_states,
+         prev_sentence: prev_sentence,
+         next_sentence: next_sentence
        }}
     else
       {:error, :document_not_found} -> {:error, :document_not_found}
       nil -> {:error, :document_not_found}
+    end
+  end
+
+  defp load_adjacent_sentence(document_id, section_id, sentence_id, direction) do
+    result =
+      case direction do
+        :previous -> Reader.previous_sentence(document_id, section_id, sentence_id)
+        :next -> Reader.next_sentence(document_id, section_id, sentence_id)
+      end
+
+    case result do
+      {:ok, %{sentence: sentence}} -> sentence
+      {:error, _} -> nil
     end
   end
 
