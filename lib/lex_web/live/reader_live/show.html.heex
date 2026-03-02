@@ -35,16 +35,37 @@
     <%= if @sentence do %>
         <!-- LLM Help Popup -->
         <%= if @llm_popup_visible do %>
-          <div class="llm-popup" data-testid="llm-popup">
-            <%= if @llm_loading do %>
-              <div class="llm-loading">Loading...</div>
-            <% end %>
-            <%= if @llm_error do %>
-              <div class="llm-error"><%= @llm_error %></div>
-            <% end %>
-            <%= if @llm_content != "" do %>
-              <div class="llm-content"><%= @llm_content %></div>
-            <% end %>
+          <div class="llm-popup" data-testid="llm-popup" phx-hook="LLMPopup" id="llm-popup">
+            <div class="llm-popup-header">
+              <span class="llm-popup-title">Translation Help</span>
+              <button class="llm-popup-close" phx-click="dismiss_llm_popup" title="Close (Space)">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
+            </div>
+            
+            <div class="llm-popup-content" id="llm-popup-content">
+              <%= if @llm_loading do %>
+                <div class="llm-popup-loading">
+                  <div class="llm-popup-spinner"></div>
+                  <span>Thinking...</span>
+                </div>
+              <% end %>
+              
+              <%= if @llm_error do %>
+                <div class="llm-popup-error">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
+                  <span><%= @llm_error %></span>
+                </div>
+              <% end %>
+              
+              <%= if @llm_content != "" do %>
+                <div class="llm-popup-response"><%= @llm_content %></div>
+              <% end %>
+            </div>
+            
+            <div class="llm-popup-footer">
+              <span class="llm-popup-hint">Press space to close</span>
+            </div>
           </div>
         <% end %>
 
