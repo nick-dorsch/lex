@@ -417,17 +417,17 @@ defmodule LexWeb.ReaderLive.StateTransitionsTest do
       _sentence2 = create_sentence(section1, 2, "Second.")
 
       # Section 2: 3 sentences
-      _sentence3 = create_sentence(section2, 1, "Third.")
+      sentence3 = create_sentence(section2, 1, "Third.")
       _sentence4 = create_sentence(section2, 2, "Fourth.")
-      sentence5 = create_sentence(section2, 3, "Fifth.")
+      _sentence5 = create_sentence(section2, 3, "Fifth.")
 
       # Section 3: 1 sentence
       _sentence6 = create_sentence(section3, 1, "Sixth.")
 
       create_tokens_for_sentence(sentence1, ["First", "."])
-      create_tokens_for_sentence(sentence5, ["Fifth", "."])
+      create_tokens_for_sentence(sentence3, ["Third", "."])
 
-      # Set position to last sentence of section 1
+      # Set position to first sentence of section 1
       {:ok, _} =
         Reader.set_position(user.id, document.id, section1.id, sentence1.id)
 
@@ -437,7 +437,7 @@ defmodule LexWeb.ReaderLive.StateTransitionsTest do
       # Clear events
       Repo.delete_all(ReadingEvent)
 
-      # Skip to next section (should skip section 2 with 3 sentences)
+      # Skip to next section (should land on section 2, skipping 1 remaining sentence in section 1)
       render_hook(view, :key_nav, %{"key" => "s"})
 
       # Check skip_range event
@@ -447,7 +447,8 @@ defmodule LexWeb.ReaderLive.StateTransitionsTest do
         |> Repo.one()
 
       payload = ReadingEvent.decode_payload(event)
-      assert payload["skipped_sentences"] == 3
+      # Should skip 1 remaining sentence from section 1 (sentence2)
+      assert payload["skipped_sentences"] == 1
     end
   end
 

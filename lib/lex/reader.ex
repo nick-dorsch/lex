@@ -421,7 +421,7 @@ defmodule Lex.Reader do
             skipped_count
           )
         else
-          # This section has sentences - check if we should land here or skip further
+          # This section has sentences - land here (it's the next section)
           first_sentence =
             Sentence
             |> where(section_id: ^candidate_section.id)
@@ -429,33 +429,12 @@ defmodule Lex.Reader do
             |> limit(1)
             |> Repo.one()
 
-          # Check if there's another section after this one
-          next_after_candidate =
-            Section
-            |> where(document_id: ^document_id)
-            |> where([s], s.position > ^candidate_section.position)
-            |> order_by(asc: :position)
-            |> limit(1)
-            |> Repo.one()
-
-          case next_after_candidate do
-            nil ->
-              # No more sections, must land here (can't skip the last section)
-              {:ok,
-               %{
-                 section: candidate_section,
-                 sentence: first_sentence,
-                 skipped_sentences: skipped_count
-               }}
-
-            _ ->
-              # There are more sections, skip this one and continue
-              skip_to_next_section_recursive(
-                document_id,
-                candidate_section.position,
-                skipped_count + section_sentence_count
-              )
-          end
+          {:ok,
+           %{
+             section: candidate_section,
+             sentence: first_sentence,
+             skipped_sentences: skipped_count
+           }}
         end
     end
   end

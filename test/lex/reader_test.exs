@@ -548,16 +548,16 @@ defmodule Lex.ReaderTest do
       assert skipped == 0
     end
 
-    test "skips multiple sections and counts skipped sentences" do
+    test "skips to next section and counts remaining sentences in current section" do
       user = create_user()
       document = create_document(user.id)
       section1 = create_section(document.id, 1, %{title: "Chapter 1"})
       section2 = create_section(document.id, 2, %{title: "Chapter 2"})
       section3 = create_section(document.id, 3, %{title: "Chapter 3"})
       sentence1 = create_sentence(section1.id, 1, "Sentence 1.")
-      _sentence2a = create_sentence(section2.id, 1, "Sentence 2a.")
+      sentence2a = create_sentence(section2.id, 1, "Sentence 2a.")
       _sentence2b = create_sentence(section2.id, 2, "Sentence 2b.")
-      sentence3 = create_sentence(section3.id, 1, "Sentence 3.")
+      _sentence3 = create_sentence(section3.id, 1, "Sentence 3.")
 
       assert {:ok,
               %{
@@ -567,18 +567,20 @@ defmodule Lex.ReaderTest do
               }} =
                Reader.skip_to_next_section(document.id, section1.id, sentence1.id)
 
-      assert returned_section.id == section3.id
-      assert returned_sentence.id == sentence3.id
-      # Skips 2 sentences from section2 (the intermediate section with content)
-      assert skipped == 2
+      # Should land on section 2 (the immediate next section), not section 3
+      assert returned_section.id == section2.id
+      assert returned_sentence.id == sentence2a.id
+      # No remaining sentences in section1 after sentence1, so skipped is 0
+      assert skipped == 0
     end
 
-    test "lands on last section when it's the only one with content" do
+    test "lands on next section and counts remaining sentences in current section" do
       user = create_user()
       document = create_document(user.id)
       section1 = create_section(document.id, 1, %{title: "Chapter 1"})
       section2 = create_section(document.id, 2, %{title: "Chapter 2"})
-      sentence1 = create_sentence(section1.id, 1, "Sentence in chapter 1.")
+      sentence1a = create_sentence(section1.id, 1, "First sentence in chapter 1.")
+      _sentence1b = create_sentence(section1.id, 2, "Second sentence in chapter 1.")
       sentence2 = create_sentence(section2.id, 1, "Sentence in chapter 2.")
 
       assert {:ok,
@@ -587,11 +589,12 @@ defmodule Lex.ReaderTest do
                 sentence: returned_sentence,
                 skipped_sentences: skipped
               }} =
-               Reader.skip_to_next_section(document.id, section1.id, sentence1.id)
+               Reader.skip_to_next_section(document.id, section1.id, sentence1a.id)
 
-      # Cannot skip last section, so we land on it
+      # Should land on section2 (the immediate next section)
       assert returned_section.id == section2.id
       assert returned_sentence.id == sentence2.id
+      # One remaining sentence in section1 after sentence1a
       assert skipped == 1
     end
   end
