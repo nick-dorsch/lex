@@ -10,7 +10,7 @@ defmodule LexWeb.ReaderComponentsTest do
       html = render_component(&token/1, token: token, status: :new, focused: false)
 
       assert html =~ "hello"
-      assert html =~ "bg-amber-200"
+      assert html =~ "bg-amber-900/60"
       assert html =~ "rounded"
       refute html =~ "ring-2"
     end
@@ -20,7 +20,7 @@ defmodule LexWeb.ReaderComponentsTest do
       html = render_component(&token/1, token: token, status: :seen, focused: false)
 
       assert html =~ "world"
-      assert html =~ "border-gray-400"
+      assert html =~ "border-slate-500"
       assert html =~ "border-dashed"
       refute html =~ "ring-2"
     end
@@ -30,7 +30,7 @@ defmodule LexWeb.ReaderComponentsTest do
       html = render_component(&token/1, token: token, status: :learning, focused: false)
 
       assert html =~ "test"
-      assert html =~ "bg-blue-200"
+      assert html =~ "bg-blue-900/60"
       assert html =~ "rounded"
       refute html =~ "ring-2"
     end
@@ -40,9 +40,9 @@ defmodule LexWeb.ReaderComponentsTest do
       html = render_component(&token/1, token: token, status: :known, focused: false)
 
       assert html =~ "known"
-      refute html =~ "bg-amber-200"
-      refute html =~ "bg-blue-200"
-      refute html =~ "border-gray-400"
+      refute html =~ "bg-amber-900/60"
+      refute html =~ "bg-blue-900/60"
+      refute html =~ "border-slate-500"
       refute html =~ "ring-2"
     end
 
@@ -51,7 +51,7 @@ defmodule LexWeb.ReaderComponentsTest do
       html = render_component(&token/1, token: token, status: :new, focused: true)
 
       assert html =~ "focused"
-      assert html =~ "bg-amber-200"
+      assert html =~ "bg-amber-900/60"
       assert html =~ "ring-2"
       assert html =~ "ring-indigo-500"
     end
@@ -71,7 +71,7 @@ defmodule LexWeb.ReaderComponentsTest do
       html = render_component(&token/1, token: token, status: :learning, focused: true)
 
       assert html =~ "learning-focused"
-      assert html =~ "bg-blue-200"
+      assert html =~ "bg-blue-900/60"
       assert html =~ "ring-2"
       assert html =~ "ring-indigo-500"
     end

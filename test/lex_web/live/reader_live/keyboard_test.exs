@@ -115,11 +115,11 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
 
       # Initially no token should have focus ring
       html = render(view)
-      refute html =~ "ring-2 ring-indigo-500"
+      refute html =~ "ring-2 ring-indigo-400"
 
       # Press 'w' to focus first token
       html = render_hook(view, :key_nav, %{"key" => "w"})
-      assert html =~ "ring-2 ring-indigo-500"
+      assert html =~ "ring-2 ring-indigo-400"
       assert html =~ "First"
     end
 
@@ -170,7 +170,7 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
 
       # Press 'b' to focus last token
       html = render_hook(view, :key_nav, %{"key" => "b"})
-      assert html =~ "ring-2 ring-indigo-500"
+      assert html =~ "ring-2 ring-indigo-400"
       assert html =~ "third"
     end
 
@@ -221,13 +221,13 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
 
       # Focus a token in first sentence
       html = render_hook(view, :key_nav, %{"key" => "w"})
-      assert html =~ "ring-2 ring-indigo-500"
+      assert html =~ "ring-2 ring-indigo-400"
 
       # Navigate to next sentence
       html = render_hook(view, :key_nav, %{"key" => "j"})
 
       # Focus should be reset (no ring)
-      refute html =~ "ring-2 ring-indigo-500"
+      refute html =~ "ring-2 ring-indigo-400"
     end
 
     test "focus resets when navigating to previous sentence", %{conn: conn} do
@@ -246,13 +246,13 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
 
       # Focus a token in second sentence
       html = render_hook(view, :key_nav, %{"key" => "w"})
-      assert html =~ "ring-2 ring-indigo-500"
+      assert html =~ "ring-2 ring-indigo-400"
 
       # Navigate back to first sentence
       html = render_hook(view, :key_nav, %{"key" => "k"})
 
       # Focus should be reset (no ring)
-      refute html =~ "ring-2 ring-indigo-500"
+      refute html =~ "ring-2 ring-indigo-400"
     end
   end
 
@@ -365,7 +365,7 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       html = render_click(view, :focus_token, %{"token_index" => "2"})
 
       # Should show focus indicator
-      assert html =~ "ring-2 ring-indigo-500"
+      assert html =~ "ring-2 ring-indigo-400"
       assert html =~ "second"
     end
   end
