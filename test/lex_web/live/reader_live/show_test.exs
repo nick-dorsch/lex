@@ -325,6 +325,8 @@ defmodule LexWeb.ReaderLive.ShowTest do
       popup_html = view |> element("[data-testid=\"llm-popup\"]") |> render()
       assert popup_html =~ "Cached help response"
       refute popup_html =~ "Thinking..."
+      assert Lex.LLM.ClientMock.get_last_request() == nil
+      assert Lex.LLM.ClientMock.get_last_options() == []
     end
 
     test "LLM error shows error message", %{conn: conn} do
@@ -479,6 +481,8 @@ defmodule LexWeb.ReaderLive.ShowTest do
       # Verify sentence-level help placeholder is shown
       popup_html = view |> element("[data-testid=\"llm-popup\"]") |> render()
       assert popup_html =~ "Sentence-level help coming soon"
+      assert Lex.LLM.ClientMock.get_last_request() == nil
+      assert Lex.LLM.ClientMock.get_last_options() == []
     end
 
     test "HTTP 4xx error displays appropriate message", %{conn: conn} do
