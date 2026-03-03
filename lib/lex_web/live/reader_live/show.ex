@@ -487,11 +487,132 @@ defmodule LexWeb.ReaderLive.Show do
 
   # Handles LLM help request when spacebar is pressed
   defp handle_llm_help(socket) do
-    # If popup is visible, hide it (toggle off)
     if socket.assigns.llm_popup_visible do
+      # Popup is open: set to known (if focused word) and close
+      socket =
+        case set_focused_word_to_known(socket) do
+          {:ok, updated_socket} -> updated_socket
+          {:error, original_socket} -> original_socket
+        end
+
       dismiss_llm_popup(socket)
     else
+      # Popup is closed: set to learning (if focused word) and open
+      socket =
+        case set_focused_word_to_learning(socket) do
+          {:ok, updated_socket} -> updated_socket
+          {:error, original_socket} -> original_socket
+        end
+
       start_llm_help_request(socket)
+    end
+  end
+
+  # Sets the focused word to learning state
+  defp set_focused_word_to_learning(socket) do
+    case socket.assigns.focused_token_index do
+      0 ->
+        {:error, socket}
+
+      token_index ->
+        token = Enum.at(socket.assigns.tokens, token_index - 1)
+
+        case token && !token.is_punctuation && token.lexeme_id do
+          nil ->
+            {:error, socket}
+
+          lexeme_id ->
+            user_id = socket.assigns.user_id
+
+            case Vocab.mark_learning(user_id, lexeme_id) do
+              {:ok, updated_state} ->
+                new_states = Map.put(socket.assigns.lexeme_states, lexeme_id, updated_state)
+
+                {:ok,
+                 assign(socket,
+                   lexeme_states: new_states,
+                   vocab_counts: load_vocab_counts(user_id)
+                 )}
+
+              {:error, _} ->
+                {:error, socket}
+            end
+        end
+    end
+  end
+
+  # Sets the focused word to known state
+  defp set_focused_word_to_known(socket) do
+    case socket.assigns.focused_token_index do
+      0 ->
+        {:error, socket}
+
+      token_index ->
+        token = Enum.at(socket.assigns.tokens, token_index - 1)
+
+        case token && !token.is_punctuation && token.lexeme_id do
+          nil ->
+            {:error, socket}
+
+          lexeme_id ->
+            user_id = socket.assigns.user_id
+
+            case mark_known(user_id, lexeme_id) do
+              {:ok, updated_state} ->
+                new_states = Map.put(socket.assigns.lexeme_states, lexeme_id, updated_state)
+
+                {:ok,
+                 assign(socket,
+                   lexeme_states: new_states,
+                   vocab_counts: load_vocab_counts(user_id)
+                 )}
+
+              {:error, _} ->
+                {:error, socket}
+            end
+        end
+    end
+  end
+
+  # Helper to mark a lexeme as known
+  defp mark_known(user_id, lexeme_id) do
+    import Ecto.Query
+
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    existing_state =
+      Lex.Vocab.UserLexemeState
+      |> where(user_id: ^user_id, lexeme_id: ^lexeme_id)
+      |> Lex.Repo.one()
+
+    case existing_state do
+      nil ->
+        %Lex.Vocab.UserLexemeState{}
+        |> Lex.Vocab.UserLexemeState.changeset(%{
+          user_id: user_id,
+          lexeme_id: lexeme_id,
+          status: "known",
+          seen_count: 1,
+          first_seen_at: now,
+          last_seen_at: now,
+          known_at: now
+        })
+        |> Lex.Repo.insert()
+
+      %Lex.Vocab.UserLexemeState{status: "known"} = state ->
+        {:ok, state}
+
+      state ->
+        attrs = %{
+          status: "known",
+          known_at: now,
+          seen_count: state.seen_count + 1,
+          last_seen_at: now
+        }
+
+        state
+        |> Lex.Vocab.UserLexemeState.changeset(attrs)
+        |> Lex.Repo.update()
     end
   end
 
@@ -564,68 +685,55 @@ defmodule LexWeb.ReaderLive.Show do
       lexeme_id ->
         token_id = token.id
 
-        # Advance help state (seen -> learning -> known)
-        case Vocab.advance_help_state(user_id, lexeme_id) do
-          {:ok, updated_state} ->
-            # Update lexeme_states in assigns immediately
-            new_states = Map.put(socket.assigns.lexeme_states, lexeme_id, updated_state)
+        # Start LLM request with streaming
+        # Note: Word state is now managed in handle_llm_help before this is called
+        live_view_pid = self()
 
-            socket =
-              assign(socket, lexeme_states: new_states, vocab_counts: load_vocab_counts(user_id))
+        stream_callback = fn event ->
+          send(live_view_pid, Tuple.insert_at(event, 0, :llm_event))
+        end
 
-            # Start LLM request with streaming
-            # Capture the LiveView PID to ensure messages go to the right process
-            live_view_pid = self()
+        case Vocab.request_llm_help(
+               user_id,
+               document.id,
+               sentence.id,
+               token_id,
+               stream_callback
+             ) do
+          {:ok, request_id, start_time} ->
+            # Log the reading event
+            {:ok, _} =
+              Reader.log_event(user_id, :llm_help_requested, %{
+                document_id: document.id,
+                sentence_id: sentence.id,
+                token_id: token_id,
+                lexeme_id: lexeme_id,
+                request_type: :token
+              })
 
-            stream_callback = fn event ->
-              send(live_view_pid, Tuple.insert_at(event, 0, :llm_event))
-            end
+            {:noreply,
+             assign(socket,
+               help_requested: true,
+               llm_popup_visible: true,
+               llm_loading: true,
+               llm_content: "",
+               llm_content_html: "",
+               llm_error: nil,
+               current_llm_request_id: request_id,
+               current_llm_start_time: start_time
+             )}
 
-            case Vocab.request_llm_help(
-                   user_id,
-                   document.id,
-                   sentence.id,
-                   token_id,
-                   stream_callback
-                 ) do
-              {:ok, request_id, start_time} ->
-                # Log the reading event
-                {:ok, _} =
-                  Reader.log_event(user_id, :llm_help_requested, %{
-                    document_id: document.id,
-                    sentence_id: sentence.id,
-                    token_id: token_id,
-                    lexeme_id: lexeme_id,
-                    request_type: :token
-                  })
+          {:error, reason} ->
+            error_message = llm_error_to_message(reason)
 
-                {:noreply,
-                 assign(socket,
-                   help_requested: true,
-                   llm_popup_visible: true,
-                   llm_loading: true,
-                   llm_content: "",
-                   llm_content_html: "",
-                   llm_error: nil,
-                   current_llm_request_id: request_id,
-                   current_llm_start_time: start_time
-                 )}
-
-              {:error, reason} ->
-                error_message = llm_error_to_message(reason)
-
-                {:noreply,
-                 socket
-                 |> assign(
-                   llm_popup_visible: true,
-                   llm_loading: false,
-                   llm_error: error_message
-                 )
-                 |> push_event("llm_error", %{message: error_message})}
-            end
-
-          {:error, _} ->
-            {:noreply, put_flash(socket, :error, "Failed to update word status")}
+            {:noreply,
+             socket
+             |> assign(
+               llm_popup_visible: true,
+               llm_loading: false,
+               llm_error: error_message
+             )
+             |> push_event("llm_error", %{message: error_message})}
         end
     end
   end

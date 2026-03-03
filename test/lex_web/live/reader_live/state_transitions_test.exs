@@ -621,7 +621,44 @@ defmodule LexWeb.ReaderLive.StateTransitionsTest do
   end
 
   describe "state transitions on help request (space key)" do
-    test "promotes learning word to known when space is pressed", %{conn: conn} do
+    test "space (popup closed) sets word to learning and opens popup", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "Hola.")
+      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
+
+      create_token(sentence.id, lexeme.id, %{position: 1, surface: "Hola"})
+
+      # Create a "seen" state (not learning, not known)
+      {:ok, _} =
+        %UserLexemeState{}
+        |> UserLexemeState.changeset(%{
+          user_id: user.id,
+          lexeme_id: lexeme.id,
+          status: "seen",
+          seen_count: 3,
+          first_seen_at: DateTime.utc_now() |> DateTime.truncate(:second),
+          last_seen_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        })
+        |> Repo.insert()
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Focus token and press space (popup closed)
+      render_hook(view, :key_nav, %{"key" => "w"})
+      html = render_hook(view, :key_nav, %{"key" => "space"})
+
+      # Verify word is set to learning
+      state = Repo.one(UserLexemeState)
+      assert state.status == "learning"
+      assert state.learning_since != nil
+
+      # Verify popup is open
+      assert html =~ "llm-popup"
+    end
+
+    test "space (popup open) sets word to known and closes popup", %{conn: conn} do
       user = create_user()
       document = create_ready_document(user)
       section = create_section(document)
@@ -645,45 +682,21 @@ defmodule LexWeb.ReaderLive.StateTransitionsTest do
 
       {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
+      # Focus token, press space to open popup (sets to learning)
       render_hook(view, :key_nav, %{"key" => "w"})
-      render_hook(view, :key_nav, %{"key" => "space"})
+      html = render_hook(view, :key_nav, %{"key" => "space"})
+      assert html =~ "llm-popup"
 
+      # Press space again (popup open) - should set to known and close
+      html = render_hook(view, :key_nav, %{"key" => "space"})
+
+      # Verify word is set to known
       state = Repo.one(UserLexemeState)
       assert state.status == "known"
       assert state.known_at != nil
-    end
 
-    test "moves known word back to learning when space is pressed", %{conn: conn} do
-      user = create_user()
-      document = create_ready_document(user)
-      section = create_section(document)
-      sentence = create_sentence(section, 1, "Hola.")
-      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
-
-      create_token(sentence.id, lexeme.id, %{position: 1, surface: "Hola"})
-
-      {:ok, _} =
-        %UserLexemeState{}
-        |> UserLexemeState.changeset(%{
-          user_id: user.id,
-          lexeme_id: lexeme.id,
-          status: "known",
-          seen_count: 8,
-          known_at: DateTime.utc_now() |> DateTime.truncate(:second),
-          first_seen_at: DateTime.utc_now() |> DateTime.truncate(:second),
-          last_seen_at: DateTime.utc_now() |> DateTime.truncate(:second)
-        })
-        |> Repo.insert()
-
-      {:ok, view, _html} = live(conn, "/read/#{document.id}")
-
-      render_hook(view, :key_nav, %{"key" => "w"})
-      render_hook(view, :key_nav, %{"key" => "space"})
-
-      state = Repo.one(UserLexemeState)
-      assert state.status == "learning"
-      assert state.learning_since != nil
-      assert state.known_at == nil
+      # Verify popup is closed
+      refute html =~ "llm-popup"
     end
   end
 
