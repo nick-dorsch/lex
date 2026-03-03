@@ -147,7 +147,7 @@ defmodule Lex.Library.CalibreScanner do
           cover_path: cover_path_for(file_path),
           title: Path.basename(file_path, ".epub"),
           author: "Unknown",
-          language: "es",
+          language: "unknown",
           import_status: :error,
           document_id: nil
         }

@@ -208,8 +208,8 @@ defmodule Lex.Library.CalibreScannerTest do
 
       assert {:ok, [book]} = CalibreScanner.scan()
 
-      # Should default to "es"
-      assert book.language == "es"
+      # Should fallback to "unknown"
+      assert book.language == "unknown"
     end
 
     test "handles invalid EPUB files with error status", %{temp_dir: temp_dir} do

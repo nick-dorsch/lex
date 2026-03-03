@@ -50,13 +50,95 @@ defmodule Lex.Library.EPUBTest do
       assert metadata.language == "fr"
     end
 
-    test "handles missing language with 'es' default" do
+    test "handles missing language with 'unknown' fallback" do
       path = "test/fixtures/epubs/no_language.epub"
 
       assert {:ok, metadata} = EPUB.parse_metadata(path)
       assert metadata.title == "Unknown Language Book"
       assert metadata.author == "Test Author"
+      assert metadata.language == "unknown"
+    end
+
+    test "normalizes language codes to base language" do
+      # Create an EPUB with regional language code
+      temp_dir =
+        Path.join(System.tmp_dir!(), "lex_lang_test_#{:erlang.unique_integer([:positive])}")
+
+      File.mkdir_p!(temp_dir)
+
+      build_dir = Path.join(temp_dir, "lang_test")
+      File.mkdir_p!(build_dir)
+
+      File.write!(Path.join(build_dir, "mimetype"), "application/epub+zip")
+
+      meta_inf_dir = Path.join(build_dir, "META-INF")
+      File.mkdir_p!(meta_inf_dir)
+
+      container_xml = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+        <rootfiles>
+          <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+        </rootfiles>
+      </container>
+      """
+
+      File.write!(Path.join(meta_inf_dir, "container.xml"), container_xml)
+
+      oebps_dir = Path.join(build_dir, "OEBPS")
+      File.mkdir_p!(oebps_dir)
+
+      xhtml_content = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE html>
+      <html xmlns="http://www.w3.org/1999/xhtml">
+      <head><title>Test</title></head>
+      <body>
+        <p>Test content</p>
+      </body>
+      </html>
+      """
+
+      File.write!(Path.join(oebps_dir, "chapter.xhtml"), xhtml_content)
+
+      # Create content.opf with regional language code
+      opf = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid">
+        <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+          <dc:title>Regional Language Test</dc:title>
+          <dc:creator>Test</dc:creator>
+          <dc:language>es-ES</dc:language>
+          <dc:identifier id="bookid">urn:uuid:test-lang</dc:identifier>
+        </metadata>
+        <manifest>
+          <item id="chapter1" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+        </manifest>
+        <spine>
+          <itemref idref="chapter1"/>
+        </spine>
+      </package>
+      """
+
+      File.write!(Path.join(oebps_dir, "content.opf"), opf)
+
+      epub_path = Path.join(temp_dir, "lang_test.epub")
+
+      files = [
+        {~c"mimetype", File.read!(Path.join(build_dir, "mimetype"))},
+        {~c"META-INF/container.xml", File.read!(Path.join(meta_inf_dir, "container.xml"))},
+        {~c"OEBPS/content.opf", File.read!(Path.join(oebps_dir, "content.opf"))},
+        {~c"OEBPS/chapter.xhtml", File.read!(Path.join(oebps_dir, "chapter.xhtml"))}
+      ]
+
+      :zip.create(String.to_charlist(epub_path), files,
+        compress: [~c".xhtml", ~c".opf", ~c".xml"]
+      )
+
+      assert {:ok, metadata} = EPUB.parse_metadata(epub_path)
       assert metadata.language == "es"
+
+      File.rm_rf!(temp_dir)
     end
   end
 

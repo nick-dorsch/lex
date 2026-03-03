@@ -13,6 +13,10 @@ defmodule Lex.Library.EPUB do
   Returns `{:ok, %{title: string, author: string, language: string}}` on success,
   or `{:error, reason}` on failure.
 
+  The language is extracted from EPUB dc:language metadata and normalized.
+  If the language element is missing or empty, returns "unknown".
+  Regional language tags (e.g., "es-ES") are normalized to base language ("es").
+
   ## Error cases
   - `{:error, :file_not_found}` - File does not exist
   - `{:error, :invalid_epub}` - Not a valid ZIP/EPUB file
@@ -23,8 +27,8 @@ defmodule Lex.Library.EPUB do
           | {:error, atom()}
   def parse_metadata(path) do
     with :ok <- check_file_exists(path),
-         {:ok, config} <- parse_epub(path) do
-      metadata = extract_metadata(config, path)
+         {:ok, config, opf_content} <- parse_epub_with_raw(path) do
+      metadata = extract_metadata(config, opf_content, path)
       {:ok, metadata}
     end
   end
@@ -58,7 +62,86 @@ defmodule Lex.Library.EPUB do
       {:error, :invalid_epub}
   end
 
-  defp extract_metadata(%BUPE.Config{} = config, path) do
+  # Parse EPUB and return both parsed config and raw OPF content
+  # This allows us to detect if dc:language element actually exists
+  defp parse_epub_with_raw(path) do
+    config = BUPE.parse(path)
+    opf_content = read_opf_content(path)
+    {:ok, config, opf_content}
+  rescue
+    e in ArgumentError ->
+      if e.message =~ "does not exists" or e.message =~ "does not have an '.epub' extension" do
+        {:error, :file_not_found}
+      else
+        {:error, :invalid_epub}
+      end
+
+    e in RuntimeError ->
+      cond do
+        e.message =~ "invalid mimetype" -> {:error, :invalid_epub}
+        e.message =~ "rootfile" -> {:error, :missing_opf}
+        true -> {:error, :invalid_epub}
+      end
+
+    _ ->
+      {:error, :invalid_epub}
+  end
+
+  # Read the raw OPF content from the EPUB to detect missing elements
+  defp read_opf_content(path) do
+    case :zip.zip_open(String.to_charlist(path), [:memory]) do
+      {:ok, zip_handle} ->
+        try do
+          # Find the OPF file path from container.xml
+          case :zip.zip_get(~c"META-INF/container.xml", zip_handle) do
+            {:ok, {_, container_content}} ->
+              container_xml = safe_binary_from_zip(container_content)
+
+              # Extract the OPF path from the container
+              opf_path = extract_opf_path_from_container(container_xml)
+
+              # Read the OPF content
+              case :zip.zip_get(String.to_charlist(opf_path), zip_handle) do
+                {:ok, {_, opf_content}} -> safe_binary_from_zip(opf_content)
+                _ -> nil
+              end
+
+            _ ->
+              nil
+          end
+        after
+          :zip.zip_close(zip_handle)
+        end
+
+      {:error, _} ->
+        nil
+    end
+  end
+
+  # Convert ZIP content to binary (handles both list and binary returns)
+  defp safe_binary_from_zip(content) when is_binary(content), do: content
+  defp safe_binary_from_zip(content) when is_list(content), do: :erlang.list_to_binary(content)
+  defp safe_binary_from_zip(_), do: nil
+
+  # Extract the OPF file path from container.xml
+  defp extract_opf_path_from_container(container_xml) do
+    case Regex.run(~r/full-path=["']([^"']+)["']/i, container_xml, capture: :all_but_first) do
+      [path] -> path
+      _ -> "OEBPS/content.opf"
+    end
+  end
+
+  # Check if dc:language element exists in the OPF content
+  defp language_element_present?(nil), do: false
+
+  defp language_element_present?(opf_content) when is_binary(opf_content) do
+    # Check for dc:language element in the OPF metadata
+    # Match both <dc:language> and <dc:language /> patterns
+    Regex.match?(~r/<dc:language[^>]*>[^<]*<\/dc:language>/i, opf_content) or
+      Regex.match?(~r/<dc:language[^>]*\/>/i, opf_content)
+  end
+
+  defp extract_metadata(%BUPE.Config{} = config, opf_content, path) do
     title =
       case config.title do
         nil ->
@@ -82,15 +165,34 @@ defmodule Lex.Library.EPUB do
         c -> c
       end
 
+    # Check if dc:language element actually exists in the OPF
     language =
-      case config.language do
-        nil -> "es"
-        "" -> "es"
-        l -> l
+      if language_element_present?(opf_content) do
+        # Language element exists, normalize the value from BUPE
+        normalize_language(config.language)
+      else
+        # Language element is missing, return "unknown"
+        "unknown"
       end
 
     %{title: title, author: author, language: language}
   end
+
+  # Normalize language codes to ISO 639-1 base language
+  # Handles cases like "es-ES", "es-MX", "en-US", etc.
+  defp normalize_language(language) when is_binary(language) do
+    language
+    |> String.downcase()
+    |> String.trim()
+    |> String.split("-")
+    |> List.first()
+    |> case do
+      "" -> "unknown"
+      lang -> lang
+    end
+  end
+
+  defp normalize_language(_), do: "unknown"
 
   @doc """
   Lists all chapters from an EPUB in reading order, excluding front/back matter.
