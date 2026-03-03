@@ -2,9 +2,11 @@ defmodule LexWeb.LibraryLive.IndexTest do
   use Lex.ConnCase, async: false
 
   import Phoenix.LiveViewTest
+  import Ecto.Query
 
   alias Lex.Repo
   alias Lex.Accounts.User
+  alias Lex.Accounts.UserTargetLanguage
   alias Lex.Library.Document
   alias Lex.Library.Section
   alias Lex.Text.Sentence
@@ -159,6 +161,80 @@ defmodule LexWeb.LibraryLive.IndexTest do
       {:ok, _view2, html} = live(conn, "/library")
       assert html =~ "Read"
       assert html =~ "imported-badge"
+    end
+  end
+
+  describe "profile setup modal" do
+    test "auto-opens for default startup user with incomplete setup", %{conn: conn} do
+      {:ok, _view, html} = live(conn, "/library")
+
+      assert html =~ "Finish profile setup"
+      assert html =~ "Target languages"
+    end
+
+    test "cannot be dismissed while setup is incomplete", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/library")
+
+      html = render_click(view, "dismiss_profile_setup_modal", %{})
+
+      assert html =~ "Finish profile setup"
+    end
+
+    test "shows validation errors for invalid email and missing target languages", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/library")
+
+      html =
+        render_submit(view, "save_profile_setup", %{
+          "profile" => %{"name" => "Default User", "email" => "invalid-email"}
+        })
+
+      assert html =~ "must have the @ sign and no spaces"
+      assert html =~ "select at least one target language"
+      assert html =~ "Finish profile setup"
+    end
+
+    test "persists profile and target languages on valid save", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/library")
+
+      html =
+        render_submit(view, "save_profile_setup", %{
+          "profile" => %{
+            "name" => "Reader One",
+            "email" => "reader.one@example.com",
+            "target_languages" => ["es", "fr"]
+          }
+        })
+
+      refute html =~ "Finish profile setup"
+
+      user = Repo.get_by!(User, email: "reader.one@example.com")
+      assert user.name == "Reader One"
+
+      target_languages =
+        UserTargetLanguage
+        |> where([utl], utl.user_id == ^user.id)
+        |> select([utl], utl.language_code)
+        |> Repo.all()
+        |> Enum.sort()
+
+      assert target_languages == ["es", "fr"]
+    end
+
+    test "stays dismissed after successful setup on remount", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/library")
+
+      _html =
+        render_submit(view, "save_profile_setup", %{
+          "profile" => %{
+            "name" => "Reader Two",
+            "email" => "reader.two@example.com",
+            "target_languages" => ["es"]
+          }
+        })
+
+      {:ok, _new_view, html} = live(conn, "/library")
+
+      refute html =~ "Finish profile setup"
     end
   end
 

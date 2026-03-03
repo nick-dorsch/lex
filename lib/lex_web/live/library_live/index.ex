@@ -6,9 +6,10 @@ defmodule LexWeb.LibraryLive.Index do
   use LexWeb, :live_view
 
   alias Lex.Accounts.User
+  alias Lex.Accounts.UserTargetLanguage
   alias Lex.Repo
   alias Lex.Library
-  alias Lex.Library.{CalibreScanner, Document, ImportTracker}
+  alias Lex.Library.{CalibreScanner, Document, ImportTracker, Language}
   alias Lex.Text.Sentence
   alias Lex.Reader.UserSentenceState
   alias Phoenix.PubSub
@@ -46,7 +47,8 @@ defmodule LexWeb.LibraryLive.Index do
      |> assign(:items, items)
      |> assign(:user_id, user_id)
      |> assign(:calibre_available, calibre_available?())
-     |> assign(:refreshing, false)}
+     |> assign(:refreshing, false)
+     |> assign_profile_setup_state(user_id)}
   end
 
   @impl true
@@ -211,6 +213,50 @@ defmodule LexWeb.LibraryLive.Index do
     end
   end
 
+  @impl true
+  def handle_event("validate_profile_setup", %{"profile" => profile_params}, socket) do
+    user = Repo.get!(User, socket.assigns.user_id)
+    params = normalize_profile_params(profile_params)
+
+    {:noreply,
+     socket
+     |> assign(:profile_params, params)
+     |> assign(:profile_changeset, profile_changeset(user, params, :validate))}
+  end
+
+  @impl true
+  def handle_event("save_profile_setup", %{"profile" => profile_params}, socket) do
+    user = Repo.get!(User, socket.assigns.user_id)
+    params = normalize_profile_params(profile_params)
+    changeset = profile_changeset(user, params, :validate)
+
+    if changeset.valid? do
+      case save_profile_setup(user, params) do
+        {:ok, _updated_user} ->
+          {:noreply,
+           socket
+           |> assign(:show_profile_setup_modal, false)
+           |> put_flash(:info, "Profile setup complete")}
+
+        {:error, %Ecto.Changeset{} = error_changeset} ->
+          {:noreply,
+           socket
+           |> assign(:profile_params, params)
+           |> assign(:profile_changeset, Map.put(error_changeset, :action, :validate))}
+      end
+    else
+      {:noreply,
+       socket
+       |> assign(:profile_params, params)
+       |> assign(:profile_changeset, changeset)}
+    end
+  end
+
+  @impl true
+  def handle_event("dismiss_profile_setup_modal", _params, socket) do
+    {:noreply, socket}
+  end
+
   defp get_user_id(socket) do
     case socket.assigns[:current_user] do
       %{id: user_id} -> user_id
@@ -236,6 +282,157 @@ defmodule LexWeb.LibraryLive.Index do
   defp calibre_available? do
     path = Library.calibre_library_path()
     not is_nil(path) and path != "" and File.exists?(path)
+  end
+
+  defp assign_profile_setup_state(socket, user_id) do
+    user = Repo.get!(User, user_id)
+    target_languages = load_target_languages(user_id)
+    params = default_profile_params(user, target_languages)
+
+    socket
+    |> assign(:show_profile_setup_modal, requires_profile_setup?(user, target_languages))
+    |> assign(:profile_params, params)
+    |> assign(:profile_changeset, profile_changeset(user, params, nil))
+    |> assign(:target_language_options, target_language_options())
+  end
+
+  defp requires_profile_setup?(user, target_languages) do
+    default_startup_user?(user) and
+      (blank?(user.name) or blank?(user.email) or target_languages == [] or invalid_email?(user))
+  end
+
+  defp default_startup_user?(user), do: user.email == "default@lex.local"
+
+  defp invalid_email?(user) do
+    changeset =
+      User.changeset(user, %{
+        name: user.name,
+        email: user.email,
+        primary_language: user.primary_language
+      })
+
+    Keyword.has_key?(changeset.errors, :email)
+  end
+
+  defp blank?(value) when is_binary(value), do: String.trim(value) == ""
+  defp blank?(_value), do: true
+
+  defp default_profile_params(user, target_languages) do
+    %{
+      "name" => user.name || "",
+      "email" => user.email || "",
+      "target_languages" => target_languages
+    }
+  end
+
+  defp normalize_profile_params(profile_params) do
+    %{
+      "name" => String.trim(Map.get(profile_params, "name", "")),
+      "email" => String.trim(Map.get(profile_params, "email", "")),
+      "target_languages" =>
+        normalize_target_languages(Map.get(profile_params, "target_languages", []))
+    }
+  end
+
+  defp normalize_target_languages(target_languages) when is_binary(target_languages) do
+    [target_languages]
+    |> normalize_target_languages()
+  end
+
+  defp normalize_target_languages(target_languages) when is_list(target_languages) do
+    target_languages
+    |> Enum.map(&Language.from_user_target/1)
+    |> Enum.reject(&(&1 == Language.unknown()))
+    |> Enum.uniq()
+  end
+
+  defp normalize_target_languages(_target_languages), do: []
+
+  defp profile_changeset(user, profile_params, action) do
+    attrs = %{
+      name: profile_params["name"],
+      email: profile_params["email"],
+      primary_language: user.primary_language || "en"
+    }
+
+    changeset = User.changeset(user, attrs)
+
+    changeset =
+      if profile_params["target_languages"] == [] do
+        Ecto.Changeset.add_error(
+          changeset,
+          :target_languages,
+          "select at least one target language"
+        )
+      else
+        changeset
+      end
+
+    if action do
+      Map.put(changeset, :action, action)
+    else
+      changeset
+    end
+  end
+
+  defp load_target_languages(user_id) do
+    UserTargetLanguage
+    |> where([utl], utl.user_id == ^user_id)
+    |> order_by([utl], asc: utl.language_code)
+    |> select([utl], utl.language_code)
+    |> Repo.all()
+  end
+
+  defp save_profile_setup(user, profile_params) do
+    user_attrs = %{
+      name: profile_params["name"],
+      email: profile_params["email"],
+      primary_language: user.primary_language || "en"
+    }
+
+    target_languages = profile_params["target_languages"]
+
+    Repo.transaction(fn ->
+      case user |> User.changeset(user_attrs) |> Repo.update() do
+        {:ok, updated_user} ->
+          Repo.delete_all(from(utl in UserTargetLanguage, where: utl.user_id == ^updated_user.id))
+
+          Enum.reduce_while(target_languages, {:ok, updated_user}, fn language_code,
+                                                                      {:ok, user_acc} ->
+            %UserTargetLanguage{}
+            |> UserTargetLanguage.changeset(%{
+              user_id: updated_user.id,
+              language_code: language_code
+            })
+            |> Repo.insert()
+            |> case do
+              {:ok, _target_language} -> {:cont, {:ok, user_acc}}
+              {:error, changeset} -> Repo.rollback(changeset)
+            end
+          end)
+
+        {:error, changeset} ->
+          Repo.rollback(changeset)
+      end
+    end)
+    |> case do
+      {:ok, {:ok, updated_user}} -> {:ok, updated_user}
+      {:error, %Ecto.Changeset{} = changeset} -> {:error, changeset}
+    end
+  end
+
+  defp target_language_options do
+    [
+      {"English", "en"},
+      {"Spanish", "es"},
+      {"French", "fr"},
+      {"German", "de"},
+      {"Italian", "it"},
+      {"Portuguese", "pt"},
+      {"Japanese", "ja"},
+      {"Korean", "ko"},
+      {"Chinese", "zh"}
+    ]
   end
 
   @spec load_unified_library(integer()) :: [unified_item()]

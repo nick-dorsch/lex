@@ -30,6 +30,12 @@
     background-color: transparent;
   }
 
+  .library-container.profile-blocked {
+    filter: blur(1px);
+    pointer-events: none;
+    user-select: none;
+  }
+
   /* Library Header */
   .library-header {
     @apply flex items-center justify-between mb-8;
@@ -278,6 +284,108 @@
 
   .library-item.imported {
     border-color: rgba(34, 197, 94, 0.3);
+  }
+
+  .profile-setup-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background-color: rgba(25, 20, 17, 0.78);
+    backdrop-filter: blur(2px);
+    z-index: 60;
+  }
+
+  .profile-setup-modal {
+    width: min(100%, 36rem);
+    border-radius: 0.9rem;
+    padding: 1.5rem;
+    background-color: var(--warm-surface);
+    border: 1px solid var(--warm-border-strong);
+    color: var(--warm-text);
+    box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.65);
+  }
+
+  .profile-setup-modal h2 {
+    font-size: 1.375rem;
+    font-weight: 700;
+  }
+
+  .profile-setup-modal > p {
+    margin-top: 0.5rem;
+    margin-bottom: 1rem;
+    color: var(--warm-text-muted);
+  }
+
+  .profile-setup-modal form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+
+  .profile-setup-modal label,
+  .profile-setup-modal legend {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--warm-text-muted);
+  }
+
+  .profile-setup-modal input[type="text"],
+  .profile-setup-modal input[type="email"],
+  .profile-setup-modal input:not([type]) {
+    width: 100%;
+    border-radius: 0.55rem;
+    border: 1px solid var(--warm-border);
+    background-color: var(--warm-bg);
+    color: var(--warm-text);
+    padding: 0.6rem 0.75rem;
+  }
+
+  .profile-setup-modal input:focus {
+    outline: none;
+    border-color: var(--warm-gold);
+    box-shadow: 0 0 0 2px rgba(199, 141, 59, 0.25);
+  }
+
+  .profile-language-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  .profile-language-option {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--warm-text);
+    font-weight: 400;
+  }
+
+  .profile-language-option input {
+    accent-color: var(--warm-gold);
+  }
+
+  .profile-setup-error {
+    color: #fda4af;
+    font-size: 0.8rem;
+    margin-top: -0.35rem;
+  }
+
+  .profile-setup-submit {
+    margin-top: 0.3rem;
+    border-radius: 0.6rem;
+    padding: 0.7rem 1rem;
+    font-weight: 600;
+    background-color: var(--warm-gold);
+    color: #362713;
+    transition: background-color 0.2s ease;
+  }
+
+  .profile-setup-submit:hover {
+    background-color: var(--warm-gold-soft);
   }
 
   /* Reader View */

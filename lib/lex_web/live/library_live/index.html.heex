@@ -1,4 +1,4 @@
-<div class="library-container">
+<div class={"library-container #{if @show_profile_setup_modal, do: "profile-blocked", else: ""}"}>
   <div class="library-header">
     <h1>My Library</h1>
     <button 
@@ -109,3 +109,54 @@
     </div>
   <% end %>
 </div>
+
+<%= if @show_profile_setup_modal do %>
+  <div class="profile-setup-overlay" phx-click="dismiss_profile_setup_modal">
+    <div class="profile-setup-modal" phx-click-away="dismiss_profile_setup_modal">
+      <h2>Finish profile setup</h2>
+      <p>Set your name, email, and at least one target language to continue.</p>
+
+      <form phx-change="validate_profile_setup" phx-submit="save_profile_setup">
+        <label for="profile_name">Name</label>
+        <input id="profile_name" type="text" name="profile[name]" value={@profile_params["name"]} />
+        <%= if error = Keyword.get(@profile_changeset.errors, :name) do %>
+          <p class="profile-setup-error"><%= elem(error, 0) %></p>
+        <% end %>
+
+        <label for="profile_email">Email</label>
+        <input
+          id="profile_email"
+          type="email"
+          name="profile[email]"
+          value={@profile_params["email"]}
+        />
+        <%= if error = Keyword.get(@profile_changeset.errors, :email) do %>
+          <p class="profile-setup-error"><%= elem(error, 0) %></p>
+        <% end %>
+
+        <fieldset>
+          <legend>Target languages</legend>
+          <div class="profile-language-options">
+            <%= for {label, code} <- @target_language_options do %>
+              <label class="profile-language-option" for={"profile_target_languages_#{code}"}>
+                <input
+                  id={"profile_target_languages_#{code}"}
+                  type="checkbox"
+                  name="profile[target_languages][]"
+                  value={code}
+                  checked={code in @profile_params["target_languages"]}
+                />
+                <span><%= label %></span>
+              </label>
+            <% end %>
+          </div>
+          <%= if error = Keyword.get(@profile_changeset.errors, :target_languages) do %>
+            <p class="profile-setup-error"><%= elem(error, 0) %></p>
+          <% end %>
+        </fieldset>
+
+        <button type="submit" class="profile-setup-submit">Save profile</button>
+      </form>
+    </div>
+  </div>
+<% end %>
