@@ -34,6 +34,62 @@ defmodule Lex.LLM.SessionConnectionOwnerTest do
     assert conn2 == SessionConnectionOwner.current_connection(owner)
   end
 
+  test "initial connect handoff failure closes connection and stores no reusable state" do
+    test_pid = self()
+
+    close_fun = fn conn ->
+      send(test_pid, {:closed, conn})
+      :ok
+    end
+
+    handoff_fun = fn _conn, _caller_pid -> {:error, :handoff_failed} end
+
+    {:ok, owner} =
+      SessionConnectionOwner.start_link(close_fun: close_fun, handoff_fun: handoff_fun)
+
+    assert {:error, :handoff_failed} =
+             SessionConnectionOwner.get_or_connect(owner, fn -> {:ok, make_ref()} end)
+
+    assert_receive {:closed, _conn}, 1000
+    assert nil == SessionConnectionOwner.current_connection(owner)
+  end
+
+  test "reused connection handoff failure clears unhealthy connection" do
+    test_pid = self()
+    {:ok, handoff_counter} = Agent.start_link(fn -> 0 end)
+
+    close_fun = fn conn ->
+      send(test_pid, {:closed, conn})
+      :ok
+    end
+
+    handoff_fun = fn _conn, _caller_pid ->
+      Agent.get_and_update(handoff_counter, fn count ->
+        next = count + 1
+
+        result =
+          if count == 0 do
+            :ok
+          else
+            {:error, :stale_owner}
+          end
+
+        {result, next}
+      end)
+    end
+
+    {:ok, owner} =
+      SessionConnectionOwner.start_link(close_fun: close_fun, handoff_fun: handoff_fun)
+
+    assert {:ok, conn} = SessionConnectionOwner.get_or_connect(owner, fn -> {:ok, make_ref()} end)
+
+    assert {:error, :stale_owner} =
+             SessionConnectionOwner.get_or_connect(owner, fn -> {:ok, make_ref()} end)
+
+    assert_receive {:closed, ^conn}, 1000
+    assert nil == SessionConnectionOwner.current_connection(owner)
+  end
+
   test "owner closes active connection on terminate" do
     test_pid = self()
 

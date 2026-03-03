@@ -11,6 +11,7 @@ defmodule LexWeb.ReaderLive.ShowTest do
   alias Lex.Text.Sentence
   alias Lex.Text.Token
   alias Lex.Vocab
+  alias Lex.TestLLMStreamingPlug
 
   setup do
     # Clear mock state before each test
@@ -400,6 +401,71 @@ defmodule LexWeb.ReaderLive.ShowTest do
       Lex.LLM.ClientMock.clear_mock()
     end
 
+    test "repeated token help requests in one session reuse the same owner path", %{conn: conn} do
+      original_client = Application.get_env(:lex, :llm_client)
+      original_api_key = Application.get_env(:lex, :llm_api_key)
+      original_base_url = Application.get_env(:lex, :llm_base_url)
+      original_timeout = Application.get_env(:lex, :llm_timeout_ms)
+
+      Application.delete_env(:lex, :llm_client)
+      Application.put_env(:lex, :llm_api_key, "test_api_key")
+      TestLLMStreamingPlug.ensure_counter!()
+      TestLLMStreamingPlug.set_mode(:normal)
+
+      port = random_available_port()
+
+      start_supervised!(
+        {Plug.Cowboy,
+         scheme: :http,
+         plug: TestLLMStreamingPlug,
+         options: [port: port, protocol_options: [idle_timeout: 30_000]]}
+      )
+
+      Application.put_env(:lex, :llm_base_url, "http://127.0.0.1:#{port}")
+      Application.put_env(:lex, :llm_timeout_ms, 2_000)
+
+      on_exit(fn ->
+        Application.put_env(:lex, :llm_client, original_client)
+        Application.put_env(:lex, :llm_api_key, original_api_key)
+        Application.put_env(:lex, :llm_base_url, original_base_url)
+        Application.put_env(:lex, :llm_timeout_ms, original_timeout)
+      end)
+
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "Alpha beta gamma.")
+      create_tokens_for_sentence(sentence, ["Alpha", "beta", "gamma", "."])
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      owner_before = llm_connection_owner(view)
+      assert is_pid(owner_before)
+      assert Process.alive?(owner_before)
+
+      render_hook(view, "key_nav", %{"key" => "w"})
+      render_hook(view, "key_nav", %{"key" => "space"})
+      Process.sleep(300)
+
+      popup_html = view |> element("[data-testid=\"llm-popup\"]") |> render()
+      assert popup_html =~ "hola"
+
+      render_hook(view, "key_nav", %{"key" => "space"})
+      refute view |> has_element?("[data-testid=\"llm-popup\"]")
+
+      render_hook(view, "key_nav", %{"key" => "w"})
+      render_hook(view, "key_nav", %{"key" => "space"})
+      Process.sleep(300)
+
+      popup_html = view |> element("[data-testid=\"llm-popup\"]") |> render()
+      assert popup_html =~ "hola"
+
+      owner_after = llm_connection_owner(view)
+      assert owner_after == owner_before
+      assert Process.alive?(owner_after)
+      assert TestLLMStreamingPlug.request_count() == 2
+    end
+
     test "final response is displayed after streaming completes", %{conn: conn} do
       user = create_user()
       document = create_ready_document(user)
@@ -648,5 +714,12 @@ defmodule LexWeb.ReaderLive.ShowTest do
 
   defp llm_connection_owner(view) do
     :sys.get_state(view.pid).socket.assigns.llm_connection_owner
+  end
+
+  defp random_available_port do
+    {:ok, socket} = :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}])
+    {:ok, port} = :inet.port(socket)
+    :ok = :gen_tcp.close(socket)
+    port
   end
 end

@@ -444,6 +444,7 @@ defmodule Lex.LLM.ClientTest do
     test "reconnects once and retries transparently on stale reusable connection" do
       Application.delete_env(:lex, :llm_client)
       TestLLMStreamingPlug.ensure_counter!()
+      TestLLMStreamingPlug.set_mode(:delay_second_response_once)
 
       port = random_available_port()
 
@@ -468,7 +469,6 @@ defmodule Lex.LLM.ClientTest do
       log =
         capture_log(fn ->
           assert_stream_done(owner)
-          Process.sleep(300)
           assert_stream_done(owner)
         end)
 
@@ -476,6 +476,48 @@ defmodule Lex.LLM.ClientTest do
       assert log =~ "LLM reconnect attempt after transport failure"
       assert log =~ "LLM reconnect succeeded"
       assert log =~ "transport_path=reconnected_after_retry"
+    end
+
+    test "stream callback emits chunk then done sequence" do
+      Application.put_env(:lex, :llm_client, ClientMock)
+      ClientMock.set_mock_chunks(["uno", " dos"])
+      ClientMock.set_chunk_delay(0)
+
+      test_pid = self()
+
+      callback = fn event ->
+        send(test_pid, {:event, event})
+      end
+
+      messages = [%{role: "user", content: "Hola"}]
+      assert {:ok, task} = Client.stream_chat_completion(messages, callback)
+
+      Task.await(task)
+
+      assert_receive {:event, {:chunk, "uno"}}, 1000
+      assert_receive {:event, {:chunk, " dos"}}, 1000
+      assert_receive {:event, {:done, _stats}}, 1000
+      refute_receive {:event, {:error, _reason}}, 100
+    end
+
+    test "stream callback emits only error sequence on failure" do
+      Application.put_env(:lex, :llm_client, ClientMock)
+      ClientMock.set_mock_error(:timeout)
+
+      test_pid = self()
+
+      callback = fn event ->
+        send(test_pid, {:event, event})
+      end
+
+      messages = [%{role: "user", content: "Hola"}]
+      assert {:ok, task} = Client.stream_chat_completion(messages, callback)
+
+      Task.await(task)
+
+      assert_receive {:event, {:error, :timeout}}, 1000
+      refute_receive {:event, {:chunk, _content}}, 100
+      refute_receive {:event, {:done, _stats}}, 100
     end
 
     test "does not retry non-recoverable HTTP status errors" do
