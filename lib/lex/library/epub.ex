@@ -376,10 +376,109 @@ defmodule Lex.Library.EPUB do
   defp windows_1252_codepoint(byte), do: byte
 
   defp extract_body_text_with_newlines(parsed_html) do
-    case Floki.find(parsed_html, "body") do
-      [] -> Floki.text(parsed_html, sep: "\n")
-      body -> Floki.text(body, sep: "\n")
+    nodes =
+      case Floki.find(parsed_html, "body") do
+        [] -> parsed_html
+        body -> body
+      end
+
+    blocks =
+      nodes
+      |> extract_text_blocks()
+      |> Enum.reject(&(&1 == ""))
+
+    case blocks do
+      [] -> Floki.text(nodes, sep: "\n")
+      _ -> Enum.join(blocks, "\n\n")
     end
+  end
+
+  defp extract_text_blocks(nodes) when is_list(nodes) do
+    Enum.flat_map(nodes, &extract_text_blocks/1)
+  end
+
+  defp extract_text_blocks(text) when is_binary(text) do
+    case normalize_inline_whitespace(text) do
+      "" -> []
+      cleaned -> [cleaned]
+    end
+  end
+
+  defp extract_text_blocks({tag, _attrs, children} = node) do
+    cond do
+      skip_text_tag?(tag) ->
+        []
+
+      block_tag?(tag) and has_direct_block_children?(children) ->
+        extract_text_blocks(children)
+
+      block_tag?(tag) ->
+        case node |> Floki.text(sep: " ") |> normalize_inline_whitespace() do
+          "" -> []
+          cleaned -> [cleaned]
+        end
+
+      true ->
+        extract_text_blocks(children)
+    end
+  end
+
+  defp extract_text_blocks(_), do: []
+
+  defp block_tag?(tag) do
+    tag in [
+      "address",
+      "article",
+      "aside",
+      "blockquote",
+      "dd",
+      "div",
+      "dl",
+      "dt",
+      "figcaption",
+      "figure",
+      "footer",
+      "form",
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "h5",
+      "h6",
+      "header",
+      "li",
+      "main",
+      "nav",
+      "ol",
+      "p",
+      "pre",
+      "section",
+      "table",
+      "tbody",
+      "td",
+      "tfoot",
+      "th",
+      "thead",
+      "tr",
+      "ul"
+    ]
+  end
+
+  defp has_direct_block_children?(children) when is_list(children) do
+    Enum.any?(children, fn
+      {child_tag, _, _} -> block_tag?(child_tag)
+      _ -> false
+    end)
+  end
+
+  defp has_direct_block_children?(_), do: false
+
+  defp skip_text_tag?(tag), do: tag in ["head", "script", "style", "noscript", "title"]
+
+  defp normalize_inline_whitespace(text) do
+    text
+    |> String.replace(~r/\s+/u, " ")
+    |> String.trim()
   end
 
   defp decode_html_entities(text) do

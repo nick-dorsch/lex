@@ -177,6 +177,21 @@ class TestNLPPipeline:
         assert sentences[1].position == 2
         assert sentences[1].text == "¿Cómo estás?"
 
+    def test_process_splits_on_blank_lines(self, pipeline):
+        """Test that blank lines create sentence boundaries."""
+        text = "Capítulo 1\n\nHabía una vez."
+        sentences = pipeline.process(text)
+
+        assert len(sentences) == 2
+
+        assert sentences[0].position == 1
+        assert sentences[0].text == "Capítulo 1"
+        assert text[sentences[0].char_start : sentences[0].char_end] == "Capítulo 1"
+
+        assert sentences[1].position == 2
+        assert sentences[1].text == "Había una vez."
+        assert text[sentences[1].char_start : sentences[1].char_end] == "Había una vez."
+
     def test_token_positions_are_one_indexed(self, pipeline):
         """Test that token positions start at 1, not 0."""
         text = "El gato come."

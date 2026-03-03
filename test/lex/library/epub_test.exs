@@ -161,6 +161,13 @@ defmodule Lex.Library.EPUBTest do
       assert content =~ "Chapter 1\n"
     end
 
+    test "extracts heading tags as standalone text blocks" do
+      path = "test/fixtures/epubs/multi_chapter.epub"
+      assert {:ok, content} = EPUB.get_chapter_content(path, "chapter2.xhtml")
+
+      assert content =~ "Chapter 2\n\nThe story continues..."
+    end
+
     test "decodes HTML entities" do
       # Create an EPUB with HTML entities
       temp_dir =

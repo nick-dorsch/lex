@@ -1,6 +1,7 @@
 """spaCy NLP pipeline for text processing."""
 
 from dataclasses import dataclass, asdict
+import re
 
 
 # Module-level cache for the spaCy model
@@ -96,10 +97,46 @@ class NLPPipeline:
             self.load()
 
         assert self._nlp is not None
-        doc = self._nlp(text)
-        return self._convert_to_sentences(doc)
+        segments = self._split_text_segments(text)
 
-    def _convert_to_sentences(self, doc) -> list[Sentence]:
+        sentences: list[Sentence] = []
+        for segment_text, segment_offset in segments:
+            doc = self._nlp(segment_text)
+            segment_sentences = self._convert_to_sentences(
+                doc,
+                char_offset=segment_offset,
+                sentence_position_start=len(sentences) + 1,
+            )
+            sentences.extend(segment_sentences)
+
+        return sentences
+
+    def _split_text_segments(self, text: str) -> list[tuple[str, int]]:
+        """Split text into paragraph-like segments preserving original offsets.
+
+        Segments are split on blank lines (one or more empty lines).
+        """
+        segments: list[tuple[str, int]] = []
+        cursor = 0
+
+        for match in re.finditer(r"\n\s*\n+", text):
+            segment = text[cursor : match.start()]
+            if segment.strip():
+                segments.append((segment, cursor))
+            cursor = match.end()
+
+        last_segment = text[cursor:]
+        if last_segment.strip():
+            segments.append((last_segment, cursor))
+
+        if not segments and text.strip():
+            segments.append((text, 0))
+
+        return segments
+
+    def _convert_to_sentences(
+        self, doc, *, char_offset: int = 0, sentence_position_start: int = 1
+    ) -> list[Sentence]:
         """Convert spaCy document to list of Sentence objects.
 
         Args:
@@ -109,7 +146,7 @@ class NLPPipeline:
             List of Sentence objects
         """
         sentences = []
-        for sent_idx, sent_span in enumerate(doc.sents, start=1):
+        for sent_idx, sent_span in enumerate(doc.sents, start=sentence_position_start):
             tokens = []
             for token_idx, token in enumerate(sent_span, start=1):
                 token_obj = Token(
@@ -119,16 +156,16 @@ class NLPPipeline:
                     lemma=token.lemma_,
                     pos=token.pos_,
                     is_punctuation=token.is_punct,
-                    char_start=token.idx,
-                    char_end=token.idx + len(token),
+                    char_start=char_offset + token.idx,
+                    char_end=char_offset + token.idx + len(token),
                 )
                 tokens.append(token_obj)
 
             sentence_obj = Sentence(
                 position=sent_idx,
                 text=sent_span.text,
-                char_start=sent_span.start_char,
-                char_end=sent_span.end_char,
+                char_start=char_offset + sent_span.start_char,
+                char_end=char_offset + sent_span.end_char,
                 tokens=tokens,
             )
             sentences.append(sentence_obj)
