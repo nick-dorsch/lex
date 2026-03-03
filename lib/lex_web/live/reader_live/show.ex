@@ -97,6 +97,11 @@ defmodule LexWeb.ReaderLive.Show do
   end
 
   @impl true
+  def handle_event("navigate_to_library", _params, socket) do
+    {:noreply, push_navigate(socket, to: ~p"/library")}
+  end
+
+  @impl true
   def handle_event("toggle_learning", %{}, socket) do
     case socket.assigns.focused_token_index do
       0 ->
