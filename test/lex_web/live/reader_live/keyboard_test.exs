@@ -9,6 +9,7 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
   alias Lex.Repo
   alias Lex.Text.Sentence
   alias Lex.Text.Token
+  alias Lex.Text.Lexeme
 
   describe "keyboard navigation" do
     test "handles key_nav event for 'j' key", %{conn: conn} do
@@ -416,22 +417,28 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
     end
   end
 
-  describe "token click to focus" do
-    test "clicking a token sets focus to that token", %{conn: conn} do
+  describe "token click behavior" do
+    test "clicking a token sets focus and triggers LLM help", %{conn: conn} do
       user = create_user()
       document = create_ready_document(user)
       section = create_section(document)
       sentence = create_sentence(section, 1, "First second third.")
       create_tokens_for_sentence(sentence, ["First", "second", "third", "."])
 
+      Lex.LLM.ClientMock.set_mock_response("Help text")
+
       {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
       # Click on the second token (index 2, since Enum.with_index starts at 1)
-      html = render_click(view, :focus_token, %{"token_index" => "2"})
+      html = render_click(view, :click_token, %{"token_index" => "2"})
 
       # Should show focus indicator
       assert html =~ "token-focused"
       assert html =~ "second"
+      assert html =~ "token-learning"
+      assert view |> has_element?("[data-testid='llm-popup']")
+
+      Lex.LLM.ClientMock.clear_mock()
     end
 
     test "clicking punctuation does not set focus", %{conn: conn} do
@@ -444,7 +451,7 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
       # Try to focus punctuation token
-      html = render_click(view, :focus_token, %{"token_index" => "3"})
+      html = render_click(view, :click_token, %{"token_index" => "3"})
 
       # Focus should remain unset
       refute html =~ "token-focused"
@@ -512,6 +519,14 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
     words
     |> Enum.with_index(1)
     |> Enum.map(fn {word, position} ->
+      lexeme_id =
+        if word in [".", ",", "!", "?", ";", ":"] do
+          nil
+        else
+          lexeme = create_lexeme(%{lemma: String.downcase(word)})
+          lexeme.id
+        end
+
       %Token{}
       |> Token.changeset(%{
         sentence_id: sentence.id,
@@ -522,9 +537,27 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
         pos: "WORD",
         is_punctuation: word in [".", ",", "!", "?", ";", ":"],
         char_start: 0,
-        char_end: String.length(word)
+        char_end: String.length(word),
+        lexeme_id: lexeme_id
       })
       |> Repo.insert!()
     end)
+  end
+
+  defp create_lexeme(attrs) do
+    unique_id = System.unique_integer([:positive])
+
+    default_attrs = %{
+      language: "en",
+      lemma: "test#{unique_id}",
+      normalized_lemma: "test#{unique_id}",
+      pos: "NOUN"
+    }
+
+    attrs = Map.merge(default_attrs, attrs)
+
+    %Lexeme{}
+    |> Lexeme.changeset(attrs)
+    |> Repo.insert!()
   end
 end

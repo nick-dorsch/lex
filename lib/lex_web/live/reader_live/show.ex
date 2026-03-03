@@ -1,7 +1,7 @@
 defmodule LexWeb.ReaderLive.Show do
   use LexWeb, :live_view
 
-  @context_sentence_count 6
+  @context_sentence_count 15
 
   alias Lex.Repo
   alias Lex.Reader
@@ -83,12 +83,20 @@ defmodule LexWeb.ReaderLive.Show do
 
   @impl true
   def handle_event("focus_token", %{"token_index" => token_index}, socket) do
-    token_index = String.to_integer(token_index)
+    case focus_token(socket, token_index) do
+      {:ok, updated_socket} -> {:noreply, updated_socket}
+      {:error, original_socket} -> {:noreply, original_socket}
+    end
+  end
 
-    if selectable_token_index?(socket.assigns.tokens, token_index) do
-      {:noreply, assign(socket, focused_token_index: token_index)}
-    else
-      {:noreply, socket}
+  @impl true
+  def handle_event("click_token", %{"token_index" => token_index}, socket) do
+    case focus_token(socket, token_index) do
+      {:ok, updated_socket} ->
+        handle_llm_help(updated_socket, :mark_learning_and_open)
+
+      {:error, original_socket} ->
+        {:noreply, original_socket}
     end
   end
 
@@ -550,26 +558,50 @@ defmodule LexWeb.ReaderLive.Show do
     end
   end
 
-  # Handles LLM help request when spacebar is pressed
-  defp handle_llm_help(socket) do
-    if socket.assigns.llm_popup_visible do
-      # Popup is open: set to known (if focused word) and close
-      socket =
-        case set_focused_word_to_known(socket) do
-          {:ok, updated_socket} -> updated_socket
-          {:error, original_socket} -> original_socket
+  # Handles LLM help request for keyboard and click interactions
+  defp handle_llm_help(socket, mode \\ :toggle) do
+    case mode do
+      :toggle ->
+        if socket.assigns.llm_popup_visible do
+          # Popup is open: set to known (if focused word) and close
+          socket =
+            case set_focused_word_to_known(socket) do
+              {:ok, updated_socket} -> updated_socket
+              {:error, original_socket} -> original_socket
+            end
+
+          dismiss_llm_popup(socket)
+        else
+          socket
+          |> maybe_set_focused_word_to_learning()
+          |> start_llm_help_request()
         end
 
-      dismiss_llm_popup(socket)
-    else
-      # Popup is closed: set to learning (if focused word) and open
-      socket =
-        case set_focused_word_to_learning(socket) do
-          {:ok, updated_socket} -> updated_socket
-          {:error, original_socket} -> original_socket
+      :mark_learning_and_open ->
+        socket
+        |> maybe_set_focused_word_to_learning()
+        |> start_llm_help_request()
+    end
+  end
+
+  defp maybe_set_focused_word_to_learning(socket) do
+    case set_focused_word_to_learning(socket) do
+      {:ok, updated_socket} -> updated_socket
+      {:error, original_socket} -> original_socket
+    end
+  end
+
+  defp focus_token(socket, token_index) do
+    case Integer.parse(to_string(token_index)) do
+      {parsed_token_index, ""} ->
+        if selectable_token_index?(socket.assigns.tokens, parsed_token_index) do
+          {:ok, assign(socket, focused_token_index: parsed_token_index)}
+        else
+          {:error, socket}
         end
 
-      start_llm_help_request(socket)
+      _ ->
+        {:error, socket}
     end
   end
 
