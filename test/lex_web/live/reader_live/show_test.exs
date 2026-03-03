@@ -665,7 +665,7 @@ defmodule LexWeb.ReaderLive.ShowTest do
       assert current_sentence_html =~ "First"
       refute current_sentence_html =~ "Second"
 
-      refute view |> has_element?("[data-testid=\"llm-popup\"]")
+      refute view |> has_element?("[data-testid='llm-popup']")
 
       # Press j without opening popup
       _html = render_hook(view, "key_nav", %{"key" => "j"})
@@ -676,7 +676,158 @@ defmodule LexWeb.ReaderLive.ShowTest do
       refute current_sentence_html =~ "First"
 
       # Still no popup
-      refute view |> has_element?("[data-testid=\"llm-popup\"]")
+      refute view |> has_element?("[data-testid='llm-popup']")
+    end
+  end
+
+  describe "space key toggle behavior" do
+    test "space when popup closed sets word to learning and opens popup", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "This is a test.")
+      create_tokens_for_sentence(sentence, ["This", "is", "a", "test", "."])
+
+      # Set up mock response
+      Lex.LLM.ClientMock.set_mock_response("Help text")
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Focus the token "test" (index 4 - need to navigate to it)
+      for _ <- 1..4 do
+        _html = render_hook(view, "key_nav", %{"key" => "w"})
+      end
+
+      # Verify popup is not visible initially
+      refute view |> has_element?("[data-testid='llm-popup']")
+
+      # Get token class before space press
+      current_sentence_html = view |> element(".current-sentence") |> render()
+      # Token should have unseen class initially (seen status from mount)
+      assert current_sentence_html =~ "token-unseen"
+
+      # Press space to set learning and open popup
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+
+      # Verify popup is now visible
+      assert view |> has_element?("[data-testid='llm-popup']")
+
+      # Verify word is now learning - check for token-learning class
+      current_sentence_html = view |> element(".current-sentence") |> render()
+      assert current_sentence_html =~ "token-learning"
+
+      # Clean up
+      Lex.LLM.ClientMock.clear_mock()
+    end
+
+    test "space when popup open sets word to known and closes popup", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "This is a test.")
+      create_tokens_for_sentence(sentence, ["This", "is", "a", "test", "."])
+
+      # Set up mock response
+      Lex.LLM.ClientMock.set_mock_response("Help text")
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Focus a token and open popup (which also sets to learning)
+      for _ <- 1..4 do
+        _html = render_hook(view, "key_nav", %{"key" => "w"})
+      end
+
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+
+      # Verify popup is visible and word is learning
+      assert view |> has_element?("[data-testid='llm-popup']")
+      current_sentence_html = view |> element(".current-sentence") |> render()
+      assert current_sentence_html =~ "token-learning"
+
+      # Press space again to set known and close popup
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+
+      # Verify popup is closed
+      refute view |> has_element?("[data-testid='llm-popup']")
+
+      # Verify word is now known - check that learning class is gone
+      # Known words don't have a special class, they use default styling
+      current_sentence_html = view |> element(".current-sentence") |> render()
+      refute current_sentence_html =~ "token-learning"
+
+      # Clean up
+      Lex.LLM.ClientMock.clear_mock()
+    end
+
+    test "space cycles word through learning and known states correctly", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "This is a test.")
+      create_tokens_for_sentence(sentence, ["This", "is", "a", "test", "."])
+
+      # Set up mock response
+      Lex.LLM.ClientMock.set_mock_response("Help text")
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Focus token "test"
+      for _ <- 1..4 do
+        _html = render_hook(view, "key_nav", %{"key" => "w"})
+      end
+
+      # Initial state: verify popup is closed
+      refute view |> has_element?("[data-testid='llm-popup']")
+
+      # After first space: learning + popup open
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+      assert view |> has_element?("[data-testid='llm-popup']")
+      current_sentence_html = view |> element(".current-sentence") |> render()
+      assert current_sentence_html =~ "token-learning"
+
+      # After second space: known + popup closed
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+      refute view |> has_element?("[data-testid='llm-popup']")
+      current_sentence_html = view |> element(".current-sentence") |> render()
+      # Known words use default styling (no special class)
+      refute current_sentence_html =~ "token-learning"
+
+      # After third space: learning again + popup open
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+      assert view |> has_element?("[data-testid='llm-popup']")
+      current_sentence_html = view |> element(".current-sentence") |> render()
+      assert current_sentence_html =~ "token-learning"
+
+      # Clean up
+      Lex.LLM.ClientMock.clear_mock()
+    end
+
+    test "space without focused token handles gracefully", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "This is a test.")
+      create_tokens_for_sentence(sentence, ["This", "is", "a", "test", "."])
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Don't focus any token (focused_token_index should be 0)
+      # Verify initial state
+      refute view |> has_element?("[data-testid='llm-popup']")
+
+      # Press space without focused token
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+
+      # Should not crash - view is still functional
+      # Verify view is still working by checking sentence is still displayed
+      current_sentence_html = view |> element(".current-sentence") |> render()
+      assert current_sentence_html =~ "This"
+      assert current_sentence_html =~ "test"
+
+      # Popup should show sentence-level help placeholder (no focused token)
+      assert view |> has_element?("[data-testid='llm-popup']")
+      popup_html = view |> element("[data-testid='llm-popup']") |> render()
+      assert popup_html =~ "Sentence-level help coming soon"
     end
   end
 
