@@ -208,6 +208,7 @@ defmodule LexWeb.ReaderLive.Show do
 
   # Handles navigation to next token (w key)
   defp handle_next_token(socket) do
+    socket = maybe_dismiss_popup(socket)
     selectable_indices = selectable_token_indices(socket.assigns.tokens)
 
     new_index = next_selectable_index(selectable_indices, socket.assigns.focused_token_index)
@@ -217,6 +218,7 @@ defmodule LexWeb.ReaderLive.Show do
 
   # Handles navigation to previous token (b key)
   defp handle_previous_token(socket) do
+    socket = maybe_dismiss_popup(socket)
     selectable_indices = selectable_token_indices(socket.assigns.tokens)
 
     new_index = previous_selectable_index(selectable_indices, socket.assigns.focused_token_index)
@@ -224,8 +226,27 @@ defmodule LexWeb.ReaderLive.Show do
     {:noreply, assign(socket, focused_token_index: new_index)}
   end
 
+  # Dismisses the LLM popup if it's visible, returning the updated socket
+  defp maybe_dismiss_popup(socket) do
+    if socket.assigns.llm_popup_visible do
+      # Reuse the assign logic from dismiss_llm_popup
+      socket
+      |> assign(
+        llm_popup_visible: false,
+        llm_content: "",
+        llm_content_html: "",
+        llm_error: nil,
+        current_llm_request_id: nil,
+        llm_loading: false
+      )
+    else
+      socket
+    end
+  end
+
   # Handles navigation to the next sentence (j key)
   defp handle_next_sentence(socket) do
+    socket = maybe_dismiss_popup(socket)
     user_id = socket.assigns.user_id
     document = socket.assigns.document
     section = socket.assigns.section
@@ -314,6 +335,7 @@ defmodule LexWeb.ReaderLive.Show do
 
   # Handles navigation to the previous sentence (k key)
   defp handle_previous_sentence(socket) do
+    socket = maybe_dismiss_popup(socket)
     user_id = socket.assigns.user_id
     document = socket.assigns.document
     section = socket.assigns.section
