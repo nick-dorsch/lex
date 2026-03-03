@@ -1,8 +1,8 @@
 defmodule Lex.LLM.Client do
   @moduledoc """
-  HTTP client for streaming LLM chat completions.
+  HTTP client for LLM chat completions.
 
-  Provides a generic interface for OpenAI-compatible streaming APIs using Tesla HTTP client.
+  Provides a generic interface for OpenAI-compatible chat APIs.
 
   ## Configuration
 
@@ -18,13 +18,9 @@ defmodule Lex.LLM.Client do
 
   require Logger
 
-  alias Lex.LLM.SessionConnectionOwner
-
   @type message :: %{role: String.t(), content: String.t()}
   @type chunk_callback ::
           ({:chunk, String.t()} | {:done, map()} | {:error, term()} -> any())
-  @type stream_opt :: {:connection_owner, GenServer.server()}
-  @type transport_path :: :newly_connected | :reused | :reconnected_after_retry
 
   @doc """
   Stream a chat completion from the LLM API.
@@ -65,17 +61,17 @@ defmodule Lex.LLM.Client do
     stream_chat_completion(messages, callback, [])
   end
 
-  @spec stream_chat_completion(list(message()), chunk_callback(), [stream_opt()]) ::
+  @spec stream_chat_completion(list(message()), chunk_callback(), keyword()) ::
           {:ok, Task.t()} | {:error, :not_configured}
   def stream_chat_completion(messages, callback, opts)
       when is_list(messages) and is_function(callback, 1) do
     # Allow injection of mock client for testing
     case Application.get_env(:lex, :llm_client) do
       nil ->
-        do_stream_chat_completion(messages, callback, opts)
+        do_chat_completion(messages, callback, opts)
 
       __MODULE__ ->
-        do_stream_chat_completion(messages, callback, opts)
+        do_chat_completion(messages, callback, opts)
 
       mock_module ->
         if function_exported?(mock_module, :stream_chat_completion, 3) do
@@ -86,7 +82,7 @@ defmodule Lex.LLM.Client do
     end
   end
 
-  defp do_stream_chat_completion(messages, callback, opts) do
+  defp do_chat_completion(messages, callback, _opts) do
     api_key = get_config(:llm_api_key)
     base_url = get_config(:llm_base_url)
 
@@ -98,14 +94,14 @@ defmodule Lex.LLM.Client do
 
       task =
         Task.async(fn ->
-          do_stream_chat_completion(messages, callback, api_key, base_url, model, timeout, opts)
+          do_chat_completion(messages, callback, api_key, base_url, model, timeout)
         end)
 
       {:ok, task}
     end
   end
 
-  defp do_stream_chat_completion(messages, callback, api_key, base_url, model, timeout, opts) do
+  defp do_chat_completion(messages, callback, api_key, base_url, model, timeout) do
     url = "#{base_url}/chat/completions"
 
     headers = [
@@ -117,225 +113,30 @@ defmodule Lex.LLM.Client do
       Jason.encode!(%{
         model: model,
         messages: messages,
-        stream: true
+        stream: false
       })
 
-    case make_streaming_request(url, headers, body, timeout, callback, opts) do
-      :ok -> :ok
-      {:error, reason} -> callback.({:error, reason})
+    case make_request(url, headers, body, timeout) do
+      {:ok, response_text, stats} ->
+        callback.({:chunk, response_text})
+        callback.({:done, stats})
+        :ok
+
+      {:error, reason} ->
+        callback.({:error, reason})
     end
   end
 
-  defp make_streaming_request(url, headers, body, timeout, callback, opts) do
-    # Use Mint for streaming HTTP
+  defp make_request(url, headers, body, timeout) do
     uri = URI.parse(url)
 
-    with_connection(uri, timeout, opts, fn conn, transport_path ->
-      request_sent_at_ms = System.monotonic_time(:millisecond)
-
-      case Mint.HTTP.request(
-             conn,
-             "POST",
-             uri.path || "/",
-             headers,
-             body
-           ) do
-        {:ok, conn, _request_ref} ->
-          stream_response(
-            conn,
-            callback,
-            "",
-            [],
-            timeout,
-            request_sent_at_ms,
-            false,
-            false,
-            transport_path
-          )
-
-        {:error, conn, reason} ->
-          Mint.HTTP.close(conn)
-          {:error, nil, {:network_error, reason}, recoverable_transport_error?(reason), false}
-
-        {:error, reason} ->
-          {:error, nil, {:network_error, reason}, recoverable_transport_error?(reason), false}
-      end
-    end)
-  end
-
-  defp with_connection(uri, timeout, opts, request_fun) do
-    case Keyword.get(opts, :connection_owner) do
-      nil ->
-        with {:ok, conn} <- connect(uri, timeout) do
-          finalize_non_owned_connection(request_fun.(conn, :newly_connected), conn)
-        end
-
-      owner ->
-        connect_fun = fn -> connect(uri, timeout) end
-        transport_path = owner_transport_path(owner)
-        with_owned_connection(owner, connect_fun, request_fun, 1, transport_path)
-    end
-  end
-
-  defp finalize_non_owned_connection({:ok, updated_conn}, _original_conn) do
-    Mint.HTTP.close(updated_conn)
-    :ok
-  end
-
-  defp finalize_non_owned_connection(
-         {:error, maybe_conn, reason, _retryable?, _chunk_emitted?},
-         original_conn
-       ) do
-    Mint.HTTP.close(maybe_conn || original_conn)
-    {:error, reason}
-  end
-
-  defp with_owned_connection(
-         owner,
-         connect_fun,
-         request_fun,
-         retries_left,
-         transport_path,
-         acquire_retry_performed \\ false
-       ) do
-    case SessionConnectionOwner.get_or_connect(owner, connect_fun) do
-      {:ok, conn} ->
-        handle_owned_request_result(
-          owner,
-          connect_fun,
-          request_fun,
-          conn,
-          retries_left,
-          transport_path,
-          acquire_retry_performed
-        )
-
-      {:error, reason} ->
-        should_retry =
-          retries_left > 0 and recoverable_transport_error?(reason) and
-            not acquire_retry_performed
-
-        if should_retry do
-          Logger.info(
-            "LLM reconnect attempt after transport failure: reason=#{inspect(reason)} retries_left=#{retries_left}"
-          )
-
-          :ok = SessionConnectionOwner.mark_unhealthy(owner, reason)
-
-          case SessionConnectionOwner.reconnect(owner, connect_fun) do
-            {:ok, _conn} ->
-              Logger.info("LLM reconnect succeeded")
-
-              with_owned_connection(
-                owner,
-                connect_fun,
-                request_fun,
-                retries_left,
-                :reconnected_after_retry,
-                true
-              )
-
-            {:error, reconnect_reason} ->
-              Logger.info("LLM reconnect failed: reason=#{inspect(reconnect_reason)}")
-              {:error, reconnect_reason}
-          end
-        else
-          :ok = SessionConnectionOwner.mark_unhealthy(owner, reason)
-          {:error, reason}
-        end
-    end
-  end
-
-  defp handle_owned_request_result(
-         owner,
-         connect_fun,
-         request_fun,
-         conn,
-         retries_left,
-         transport_path,
-         acquire_retry_performed
-       ) do
-    case request_fun.(conn, transport_path) do
-      {:ok, updated_conn} ->
-        with :ok <- return_connection_to_owner(updated_conn, owner) do
-          :ok = SessionConnectionOwner.put_connection(owner, updated_conn)
-          :ok
-        end
-
-      {:error, reason} ->
-        :ok = SessionConnectionOwner.mark_unhealthy(owner, reason)
-        {:error, reason}
-
-      {:error, _maybe_conn, _reason, _retryable?, _chunk_emitted?} = error_tuple ->
-        handle_owned_request_error(
-          owner,
-          connect_fun,
-          request_fun,
-          retries_left,
-          error_tuple,
-          acquire_retry_performed
-        )
-    end
-  end
-
-  defp handle_owned_request_error(
-         owner,
-         connect_fun,
-         request_fun,
-         retries_left,
-         {:error, maybe_conn, reason, retryable?, chunk_emitted?},
-         acquire_retry_performed
-       ) do
-    if maybe_conn, do: Mint.HTTP.close(maybe_conn)
-
-    should_retry = retries_left > 0 and retryable? and not chunk_emitted?
-
-    if should_retry do
-      Logger.info(
-        "LLM reconnect attempt after transport failure: reason=#{inspect(reason)} retries_left=#{retries_left}"
-      )
-
-      :ok = SessionConnectionOwner.mark_unhealthy(owner, reason)
-
-      case SessionConnectionOwner.reconnect(owner, connect_fun) do
-        {:ok, _conn} ->
-          Logger.info("LLM reconnect succeeded")
-
-          with_owned_connection(
-            owner,
-            connect_fun,
-            request_fun,
-            retries_left - 1,
-            :reconnected_after_retry,
-            acquire_retry_performed
-          )
-
-        {:error, reconnect_reason} ->
-          Logger.info("LLM reconnect failed: reason=#{inspect(reconnect_reason)}")
-          {:error, reconnect_reason}
-      end
+    with {:ok, conn} <- connect(uri, timeout),
+         {:ok, conn, request_ref} <-
+           Mint.HTTP.request(conn, "POST", request_path(uri), headers, body),
+         {:ok, status, response_body, final_conn} <- receive_response(conn, request_ref, timeout) do
+      Mint.HTTP.close(final_conn)
+      parse_response(status, response_body)
     else
-      :ok = SessionConnectionOwner.mark_unhealthy(owner, reason)
-      {:error, reason}
-    end
-  end
-
-  defp owner_transport_path(owner) do
-    if SessionConnectionOwner.current_connection(owner) do
-      :reused
-    else
-      :newly_connected
-    end
-  end
-
-  defp return_connection_to_owner(conn, owner) do
-    case Mint.HTTP.controlling_process(conn, owner) do
-      :ok ->
-        :ok
-
-      {:ok, _conn} ->
-        :ok
-
       {:error, conn, reason} ->
         Mint.HTTP.close(conn)
         {:error, {:network_error, reason}}
@@ -352,351 +153,124 @@ defmodule Lex.LLM.Client do
            uri.port || 443,
            transport_opts: [timeout: timeout]
          ) do
-      {:ok, conn} ->
-        {:ok, conn}
+      {:ok, conn} -> {:ok, conn}
+      {:error, conn, reason} -> {:error, conn, reason}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
-      {:error, conn, reason} ->
-        Mint.HTTP.close(conn)
-        {:error, {:network_error, reason}}
+  defp request_path(uri) do
+    path = if is_binary(uri.path) and uri.path != "", do: uri.path, else: "/"
+
+    if is_binary(uri.query) and uri.query != "" do
+      path <> "?" <> uri.query
+    else
+      path
+    end
+  end
+
+  defp receive_response(conn, request_ref, timeout) do
+    receive_response(conn, request_ref, timeout, nil, [], false)
+  end
+
+  defp receive_response(conn, request_ref, timeout, status, body_parts, done?) do
+    if done? do
+      {:ok, status, IO.iodata_to_binary(Enum.reverse(body_parts)), conn}
+    else
+      receive do
+        message ->
+          case Mint.HTTP.stream(conn, message) do
+            :unknown ->
+              receive_response(conn, request_ref, timeout, status, body_parts, done?)
+
+            {:ok, new_conn, responses} ->
+              {new_status, new_body_parts, new_done?} =
+                Enum.reduce(responses, {status, body_parts, done?}, fn response,
+                                                                       {acc_status, acc_body,
+                                                                        acc_done} ->
+                  case response do
+                    {:status, ^request_ref, code} ->
+                      {code, acc_body, acc_done}
+
+                    {:data, ^request_ref, chunk} ->
+                      {acc_status, [chunk | acc_body], acc_done}
+
+                    {:done, ^request_ref} ->
+                      {acc_status, acc_body, true}
+
+                    _ ->
+                      {acc_status, acc_body, acc_done}
+                  end
+                end)
+
+              receive_response(
+                new_conn,
+                request_ref,
+                timeout,
+                new_status,
+                new_body_parts,
+                new_done?
+              )
+
+            {:error, error_conn, reason, _responses} ->
+              Mint.HTTP.close(error_conn)
+              {:error, {:network_error, reason}}
+          end
+      after
+        timeout ->
+          Mint.HTTP.close(conn)
+          {:error, :timeout}
+      end
+    end
+  end
+
+  defp parse_response(status, body) when status in 200..299 do
+    case Jason.decode(body) do
+      {:ok, response} ->
+        with {:ok, content} <- extract_content(response) do
+          {:ok, content, usage_stats(response, content)}
+        end
 
       {:error, reason} ->
-        {:error, {:network_error, reason}}
+        Logger.warning("Failed to parse LLM response: #{inspect(reason)}")
+        {:error, {:parse_error, reason}}
     end
   end
 
-  defp stream_response(
-         conn,
-         callback,
-         buffer,
-         chunks_acc,
-         timeout,
-         request_sent_at_ms,
-         first_token_logged,
-         chunk_emitted,
-         transport_path
-       ) do
-    receive do
-      message ->
-        case Mint.HTTP.stream(conn, message) do
-          :unknown ->
-            # Not a Mint message, continue
-            stream_response(
-              conn,
-              callback,
-              buffer,
-              chunks_acc,
-              timeout,
-              request_sent_at_ms,
-              first_token_logged,
-              chunk_emitted,
-              transport_path
-            )
+  defp parse_response(status, _body), do: {:error, {:http_error, status, nil}}
 
-          {:ok, conn, responses} ->
-            {new_conn, new_buffer, new_chunks_acc, done, new_first_token_logged,
-             new_chunk_emitted} =
-              process_responses(
-                conn,
-                responses,
-                buffer,
-                chunks_acc,
-                callback,
-                request_sent_at_ms,
-                first_token_logged,
-                chunk_emitted,
-                transport_path
-              )
+  defp extract_content(%{"choices" => [%{"message" => %{"content" => content}} | _]})
+       when is_binary(content),
+       do: {:ok, content}
 
-            case done do
-              true ->
-                send_completion_stats(callback, new_chunks_acc)
-                {:ok, new_conn}
+  defp extract_content(%{"choices" => [%{"message" => %{"content" => parts}} | _]})
+       when is_list(parts) do
+    text =
+      parts
+      |> Enum.map(fn
+        %{"type" => "text", "text" => value} when is_binary(value) -> value
+        _ -> ""
+      end)
+      |> Enum.join("")
 
-              {:error, reason, retryable?} ->
-                {:error, new_conn, reason, retryable?, new_chunk_emitted}
-
-              false ->
-                stream_response(
-                  new_conn,
-                  callback,
-                  new_buffer,
-                  new_chunks_acc,
-                  timeout,
-                  request_sent_at_ms,
-                  new_first_token_logged,
-                  new_chunk_emitted,
-                  transport_path
-                )
-            end
-
-          {:error, conn, error, _responses} ->
-            Mint.HTTP.close(conn)
-
-            {:error, nil, {:http_error, error}, recoverable_transport_error?(error),
-             chunk_emitted}
-        end
-    after
-      timeout ->
-        Mint.HTTP.close(conn)
-        {:error, nil, :timeout, true, chunk_emitted}
-    end
+    {:ok, text}
   end
 
-  defp process_responses(
-         conn,
-         responses,
-         buffer,
-         chunks_acc,
-         callback,
-         request_sent_at_ms,
-         first_token_logged,
-         chunk_emitted,
-         transport_path
-       ) do
-    Enum.reduce(
-      responses,
-      {conn, buffer, chunks_acc, false, first_token_logged, chunk_emitted},
-      fn response, acc ->
-        {conn, buf, chunks, done, token_logged, emitted_chunk?} = acc
+  defp extract_content(_response), do: {:error, :invalid_response_format}
 
-        case response do
-          {:status, _ref, status} when status >= 400 ->
-            {conn, buf, chunks, {:error, {:http_error, status, nil}, false}, token_logged,
-             emitted_chunk?}
+  defp usage_stats(response, content) do
+    usage = Map.get(response, "usage", %{})
+    prompt_tokens = Map.get(usage, "prompt_tokens") || estimate_tokens(content)
+    completion_tokens = Map.get(usage, "completion_tokens") || estimate_tokens(content)
 
-          {:headers, _ref, _headers} ->
-            {conn, buf, chunks, done, token_logged, emitted_chunk?}
-
-          {:data, _ref, data} ->
-            new_buf = buf <> data
-
-            {new_buf, new_chunks, is_done, new_token_logged, new_emitted_chunk?} =
-              process_sse_data(
-                new_buf,
-                chunks,
-                callback,
-                request_sent_at_ms,
-                token_logged,
-                emitted_chunk?,
-                transport_path
-              )
-
-            {conn, new_buf, new_chunks, merge_done(done, is_done), new_token_logged,
-             new_emitted_chunk?}
-
-          {:done, _ref} ->
-            {conn, buf, chunks, merge_done(done, true), token_logged, emitted_chunk?}
-
-          _ ->
-            {conn, buf, chunks, done, token_logged, emitted_chunk?}
-        end
-      end
-    )
-  end
-
-  defp process_sse_data(
-         buffer,
-         chunks_acc,
-         callback,
-         request_sent_at_ms,
-         first_token_logged,
-         chunk_emitted,
-         transport_path
-       ) do
-    buffer
-    |> String.split("\n\n", trim: false)
-    |> process_sse_lines(
-      [],
-      chunks_acc,
-      callback,
-      request_sent_at_ms,
-      first_token_logged,
-      chunk_emitted,
-      transport_path
-    )
-  end
-
-  defp process_sse_lines(
-         [],
-         remaining,
-         chunks_acc,
-         _callback,
-         _request_sent_at_ms,
-         first_token_logged,
-         chunk_emitted,
-         _transport_path
-       ),
-       do: {Enum.join(remaining, "\n\n"), chunks_acc, false, first_token_logged, chunk_emitted}
-
-  defp process_sse_lines(
-         [last],
-         [_ | _] = remaining,
-         chunks_acc,
-         _callback,
-         _request_sent_at_ms,
-         first_token_logged,
-         chunk_emitted,
-         _transport_path
-       ) do
-    # Last incomplete chunk
-    {Enum.join(remaining ++ [last], "\n\n"), chunks_acc, false, first_token_logged, chunk_emitted}
-  end
-
-  defp process_sse_lines(
-         [_line],
-         [],
-         chunks_acc,
-         _callback,
-         _request_sent_at_ms,
-         first_token_logged,
-         chunk_emitted,
-         _transport_path
-       ) do
-    # Single line that might be incomplete
-    {"", chunks_acc, false, first_token_logged, chunk_emitted}
-  end
-
-  defp process_sse_lines(
-         [line | rest],
-         remaining,
-         chunks_acc,
-         callback,
-         request_sent_at_ms,
-         first_token_logged,
-         chunk_emitted,
-         transport_path
-       ) do
-    case parse_sse_line(line) do
-      :done ->
-        {"", chunks_acc, true, first_token_logged, chunk_emitted}
-
-      {:chunk, content} ->
-        should_log_ttft = not first_token_logged and String.trim(content) != ""
-
-        if should_log_ttft do
-          ttft_ms = System.monotonic_time(:millisecond) - request_sent_at_ms
-
-          Logger.info("LLM first token latency: #{ttft_ms}ms (transport_path=#{transport_path})")
-        end
-
-        callback.({:chunk, content})
-
-        process_sse_lines(
-          rest,
-          remaining,
-          [content | chunks_acc],
-          callback,
-          request_sent_at_ms,
-          first_token_logged or should_log_ttft,
-          true,
-          transport_path
-        )
-
-      :skip ->
-        process_sse_lines(
-          rest,
-          remaining,
-          chunks_acc,
-          callback,
-          request_sent_at_ms,
-          first_token_logged,
-          chunk_emitted,
-          transport_path
-        )
-
-      :incomplete ->
-        process_sse_lines(
-          rest,
-          remaining ++ [line],
-          chunks_acc,
-          callback,
-          request_sent_at_ms,
-          first_token_logged,
-          chunk_emitted,
-          transport_path
-        )
-    end
-  end
-
-  defp recoverable_transport_error?(reason)
-
-  defp recoverable_transport_error?({:network_error, reason}),
-    do: recoverable_transport_error?(reason)
-
-  defp recoverable_transport_error?({:http_error, reason}),
-    do: recoverable_transport_error?(reason)
-
-  defp recoverable_transport_error?(reason)
-       when reason in [
-              :closed,
-              :timeout,
-              :econnreset,
-              :econnaborted,
-              :enetdown,
-              :ehostdown,
-              :ehostunreach,
-              :closed_for_writing
-            ],
-       do: true
-
-  defp recoverable_transport_error?({:closed, _}), do: true
-  defp recoverable_transport_error?({:tcp_closed, _}), do: true
-  defp recoverable_transport_error?({:tls_closed, _}), do: true
-  defp recoverable_transport_error?(%Mint.TransportError{}), do: true
-  defp recoverable_transport_error?(_reason), do: false
-
-  defp merge_done({:error, _reason, _retryable?} = error, _is_done), do: error
-  defp merge_done(done, false), do: done
-  defp merge_done(_done, true), do: true
-
-  defp parse_sse_line(line) do
-    line = String.trim(line)
-
-    cond do
-      line == "" ->
-        :skip
-
-      line == "data: [DONE]" ->
-        :done
-
-      String.starts_with?(line, "data: ") ->
-        json_str = String.replace_prefix(line, "data: ", "")
-
-        case Jason.decode(json_str) do
-          {:ok, %{"choices" => [%{"delta" => %{"content" => content}} | _]}} ->
-            {:chunk, content}
-
-          {:ok, %{"choices" => [%{"delta" => %{}} | _]}} ->
-            :skip
-
-          {:ok, _} ->
-            :skip
-
-          {:error, _} ->
-            :incomplete
-        end
-
-      true ->
-        :skip
-    end
-  end
-
-  defp send_completion_stats(callback, chunks) do
-    full_content = Enum.reverse(chunks) |> Enum.join("")
-    prompt_tokens = estimate_tokens(full_content)
-    completion_tokens = estimate_tokens(full_content)
-
-    stats = %{
+    %{
       prompt_tokens: prompt_tokens,
       completion_tokens: completion_tokens,
-      total_tokens: prompt_tokens + completion_tokens
+      total_tokens: Map.get(usage, "total_tokens") || prompt_tokens + completion_tokens
     }
-
-    callback.({:done, stats})
   end
 
-  defp estimate_tokens(text) do
-    # Rough estimation: ~4 characters per token on average
+  defp estimate_tokens(text) when is_binary(text) do
     ceil(String.length(text) / 4)
   end
 

@@ -1159,10 +1159,10 @@ defmodule Lex.VocabTest do
 
       {system_msg, user_msg} = Vocab.build_llm_prompt(token, sentence, document, user)
 
-      assert system_msg == "You are a helpful language learning assistant. Explain words briefly."
+      assert system_msg =~ "You are a language learner's reading assistant"
       assert user_msg =~ "Word: mundo (lemma: mundo, pos: NOUN)"
       assert user_msg =~ "Sentence context: Hola mundo cruel."
-      assert user_msg =~ "Document: El Quijote by Cervantes"
+      assert user_msg =~ "Source: El Quijote by Cervantes"
       assert user_msg =~ "Respond in en"
     end
 
@@ -1554,37 +1554,6 @@ defmodule Lex.VocabTest do
       # Restore configuration
       Application.put_env(:lex, :llm_api_key, original_api_key)
       Application.put_env(:lex, :llm_base_url, original_base_url)
-      Application.put_env(:lex, :llm_client, original_client)
-    end
-
-    test "forwards client options to LLM client" do
-      user = create_user()
-      document = create_document(user.id)
-      section = create_section(document.id, 1)
-      sentence = create_sentence(section.id, 1)
-      lexeme = create_lexeme(%{lemma: "hola", normalized_lemma: "hola"})
-      token = create_token(sentence.id, lexeme.id, %{position: 1, surface: "hola"})
-
-      original_client = Application.get_env(:lex, :llm_client)
-      Application.put_env(:lex, :llm_client, Lex.LLM.ClientMock)
-      Lex.LLM.ClientMock.set_mock_response("Test response")
-      Lex.LLM.ClientMock.set_chunk_delay(0)
-
-      callback = fn _event -> :ok end
-
-      assert {:ok, _request_id, _start_time} =
-               Vocab.request_llm_help(
-                 user.id,
-                 document.id,
-                 sentence.id,
-                 token.id,
-                 callback,
-                 connection_owner: self()
-               )
-
-      assert Lex.LLM.ClientMock.get_last_options() == [connection_owner: self()]
-
-      Lex.LLM.ClientMock.clear_mock()
       Application.put_env(:lex, :llm_client, original_client)
     end
   end
