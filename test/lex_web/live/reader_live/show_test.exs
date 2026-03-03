@@ -499,6 +499,185 @@ defmodule LexWeb.ReaderLive.ShowTest do
       # Clean up
       Lex.LLM.ClientMock.clear_mock()
     end
+
+    test "j key dismisses open LLM popup and navigates to next sentence", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence_1 = create_sentence(section, 1, "First sentence here.")
+      sentence_2 = create_sentence(section, 2, "Second sentence here.")
+      create_tokens_for_sentence(sentence_1, ["First", "sentence", "here", "."])
+      create_tokens_for_sentence(sentence_2, ["Second", "sentence", "here", "."])
+
+      # Set up mock response
+      Lex.LLM.ClientMock.set_mock_response("Help text")
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Verify first sentence is displayed
+      current_sentence_html = view |> element(".current-sentence") |> render()
+      assert current_sentence_html =~ "First"
+      refute current_sentence_html =~ "Second"
+
+      # Focus a token and show popup
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+
+      # Verify popup is visible
+      assert view |> has_element?("[data-testid=\"llm-popup\"]")
+
+      # Press j to navigate next (should dismiss popup and navigate)
+      _html = render_hook(view, "key_nav", %{"key" => "j"})
+
+      # Verify popup is dismissed
+      refute view |> has_element?("[data-testid=\"llm-popup\"]")
+
+      # Verify navigated to second sentence
+      current_sentence_html = view |> element(".current-sentence") |> render()
+      assert current_sentence_html =~ "Second"
+      refute current_sentence_html =~ "First"
+
+      # Clean up
+      Lex.LLM.ClientMock.clear_mock()
+    end
+
+    test "k key dismisses open LLM popup and navigates to previous sentence", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence_1 = create_sentence(section, 1, "First sentence here.")
+      sentence_2 = create_sentence(section, 2, "Second sentence here.")
+      create_tokens_for_sentence(sentence_1, ["First", "sentence", "here", "."])
+      create_tokens_for_sentence(sentence_2, ["Second", "sentence", "here", "."])
+
+      # Set up mock response
+      Lex.LLM.ClientMock.set_mock_response("Help text")
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Navigate to second sentence first
+      _html = render_hook(view, "key_nav", %{"key" => "j"})
+
+      # Verify second sentence is displayed
+      current_sentence_html = view |> element(".current-sentence") |> render()
+      assert current_sentence_html =~ "Second"
+      refute current_sentence_html =~ "First"
+
+      # Focus a token and show popup
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+
+      # Verify popup is visible
+      assert view |> has_element?("[data-testid=\"llm-popup\"]")
+
+      # Press k to navigate previous (should dismiss popup and navigate)
+      _html = render_hook(view, "key_nav", %{"key" => "k"})
+
+      # Verify popup is dismissed
+      refute view |> has_element?("[data-testid=\"llm-popup\"]")
+
+      # Verify navigated back to first sentence
+      current_sentence_html = view |> element(".current-sentence") |> render()
+      assert current_sentence_html =~ "First"
+      refute current_sentence_html =~ "Second"
+
+      # Clean up
+      Lex.LLM.ClientMock.clear_mock()
+    end
+
+    test "w key dismisses open LLM popup and focuses next token", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "First second third.")
+      create_tokens_for_sentence(sentence, ["First", "second", "third", "."])
+
+      # Set up mock response
+      Lex.LLM.ClientMock.set_mock_response("Help text")
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Focus first token
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+
+      # Show popup
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+
+      # Verify popup is visible
+      assert view |> has_element?("[data-testid=\"llm-popup\"]")
+
+      # Press w to focus next token (should dismiss popup)
+      _html = render_hook(view, "key_nav", %{"key" => "w"})
+
+      # Verify popup is dismissed
+      refute view |> has_element?("[data-testid=\"llm-popup\"]")
+
+      # Clean up
+      Lex.LLM.ClientMock.clear_mock()
+    end
+
+    test "b key dismisses open LLM popup and focuses previous token", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "First second third.")
+      create_tokens_for_sentence(sentence, ["First", "second", "third", "."])
+
+      # Set up mock response
+      Lex.LLM.ClientMock.set_mock_response("Help text")
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Focus third token (w three times)
+      for _ <- 1..3 do
+        _html = render_hook(view, "key_nav", %{"key" => "w"})
+      end
+
+      # Show popup
+      _html = render_hook(view, "key_nav", %{"key" => "space"})
+
+      # Verify popup is visible
+      assert view |> has_element?("[data-testid=\"llm-popup\"]")
+
+      # Press b to focus previous token (should dismiss popup)
+      _html = render_hook(view, "key_nav", %{"key" => "b"})
+
+      # Verify popup is dismissed
+      refute view |> has_element?("[data-testid=\"llm-popup\"]")
+
+      # Clean up
+      Lex.LLM.ClientMock.clear_mock()
+    end
+
+    test "navigation works normally when popup is not open", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence_1 = create_sentence(section, 1, "First sentence here.")
+      sentence_2 = create_sentence(section, 2, "Second sentence here.")
+      create_tokens_for_sentence(sentence_1, ["First", "sentence", "here", "."])
+      create_tokens_for_sentence(sentence_2, ["Second", "sentence", "here", "."])
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      # Verify first sentence is displayed (popup is NOT open)
+      current_sentence_html = view |> element(".current-sentence") |> render()
+      assert current_sentence_html =~ "First"
+      refute current_sentence_html =~ "Second"
+
+      refute view |> has_element?("[data-testid=\"llm-popup\"]")
+
+      # Press j without opening popup
+      _html = render_hook(view, "key_nav", %{"key" => "j"})
+
+      # Verify navigated successfully
+      current_sentence_html = view |> element(".current-sentence") |> render()
+      assert current_sentence_html =~ "Second"
+      refute current_sentence_html =~ "First"
+
+      # Still no popup
+      refute view |> has_element?("[data-testid=\"llm-popup\"]")
+    end
   end
 
   # Helper functions for creating test data
