@@ -48,6 +48,10 @@
             <%= if item.author do %>
               <p class="item-author">by <%= item.author %></p>
             <% end %>
+
+            <%= if show_language_badge?(item) do %>
+              <span class={language_badge_class(item.language)}><%= language_badge_label(item.language) %></span>
+            <% end %>
             
             <%= if item.import_status == :imported do %>
               <span class="source-badge imported">Imported</span>

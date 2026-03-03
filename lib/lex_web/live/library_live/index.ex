@@ -22,6 +22,7 @@ defmodule LexWeb.LibraryLive.Index do
           id: String.t() | integer(),
           title: String.t(),
           author: String.t(),
+          language: String.t() | nil,
           cover_token: String.t() | nil,
           source: :calibre | :database,
           import_status: :not_imported | :importing | :imported | :error,
@@ -468,6 +469,7 @@ defmodule LexWeb.LibraryLive.Index do
       id: book.file_path,
       title: book.title,
       author: book.author,
+      language: book.language,
       cover_token: cover_token(book.cover_path),
       source: :calibre,
       import_status: book.import_status,
@@ -487,6 +489,7 @@ defmodule LexWeb.LibraryLive.Index do
       id: document.id,
       title: document.title,
       author: document.author || "Unknown",
+      language: nil,
       cover_token: nil,
       source: :database,
       import_status: :imported,
@@ -575,5 +578,29 @@ defmodule LexWeb.LibraryLive.Index do
 
   defp cover_token(cover_path) do
     Phoenix.Token.sign(LexWeb.Endpoint, "calibre_cover", cover_path)
+  end
+
+  defp show_language_badge?(item) do
+    item.source == :calibre and item.import_status != :imported
+  end
+
+  defp language_badge_label(language) do
+    normalized = Language.from_epub(language)
+
+    if normalized == Language.unknown() do
+      "Language Unknown"
+    else
+      "Language: #{normalized}"
+    end
+  end
+
+  defp language_badge_class(language) do
+    normalized = Language.from_epub(language)
+
+    if normalized == Language.unknown() do
+      "language-badge unknown"
+    else
+      "language-badge known"
+    end
   end
 end

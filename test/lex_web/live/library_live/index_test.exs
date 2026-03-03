@@ -459,6 +459,40 @@ defmodule LexWeb.LibraryLive.IndexTest do
       assert html =~ "Apple Book"
       assert html =~ "Mango Book"
     end
+
+    test "shows known and unknown language badges for importable Calibre books", %{conn: conn} do
+      temp_root = "/tmp/lex_library_live_languages_#{System.unique_integer([:positive])}"
+      known_book_dir = Path.join(temp_root, "Known Author/Known Book")
+      unknown_book_dir = Path.join(temp_root, "Unknown Author/Unknown Book")
+
+      File.mkdir_p!(known_book_dir)
+      File.mkdir_p!(unknown_book_dir)
+
+      File.cp!(
+        "test/fixtures/epubs/el_principito.epub",
+        Path.join(known_book_dir, "el_principito.epub")
+      )
+
+      create_epub_without_language(Path.join(unknown_book_dir, "no_language.epub"))
+
+      original_path = Application.fetch_env!(:lex, :calibre_library_path)
+      Application.put_env(:lex, :calibre_library_path, temp_root)
+
+      try do
+        {:ok, view, _html} = live(conn, "/library")
+
+        assert has_element?(view, ".language-badge.known", "Language: es")
+
+        assert has_element?(
+                 view,
+                 ".library-item.calibre.not_imported .language-badge.unknown",
+                 "Language Unknown"
+               )
+      after
+        Application.put_env(:lex, :calibre_library_path, original_path)
+        File.rm_rf(temp_root)
+      end
+    end
   end
 
   # Helper functions for creating test data
@@ -534,5 +568,83 @@ defmodule LexWeb.LibraryLive.IndexTest do
       read_at: DateTime.utc_now() |> DateTime.truncate(:second)
     })
     |> Repo.insert!()
+  end
+
+  defp create_epub_without_language(epub_path) do
+    temp_dir =
+      Path.join(System.tmp_dir!(), "lex_no_language_#{System.unique_integer([:positive])}")
+
+    oebps_dir = Path.join(temp_dir, "OEBPS")
+    meta_inf_dir = Path.join(temp_dir, "META-INF")
+
+    File.mkdir_p!(oebps_dir)
+    File.mkdir_p!(meta_inf_dir)
+    File.write!(Path.join(temp_dir, "mimetype"), "application/epub+zip")
+
+    File.write!(
+      Path.join(meta_inf_dir, "container.xml"),
+      """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+        <rootfiles>
+          <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+        </rootfiles>
+      </container>
+      """
+    )
+
+    File.write!(
+      Path.join(oebps_dir, "content.opf"),
+      """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid">
+        <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+          <dc:title>Unknown Language Book</dc:title>
+          <dc:creator>Test Author</dc:creator>
+          <dc:identifier id="bookid">urn:uuid:test-nolang-library-live</dc:identifier>
+          <meta property="dcterms:modified">2024-01-01T00:00:00Z</meta>
+        </metadata>
+        <manifest>
+          <item id="chapter1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
+        </manifest>
+        <spine>
+          <itemref idref="chapter1"/>
+        </spine>
+      </package>
+      """
+    )
+
+    File.write!(
+      Path.join(oebps_dir, "chapter1.xhtml"),
+      """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE html>
+      <html xmlns="http://www.w3.org/1999/xhtml">
+        <head>
+          <title>Chapter 1</title>
+        </head>
+        <body>
+          <h1>Chapter 1</h1>
+          <p>Sample content</p>
+        </body>
+      </html>
+      """
+    )
+
+    File.mkdir_p!(Path.dirname(epub_path))
+
+    files = [
+      {~c"mimetype", File.read!(Path.join(temp_dir, "mimetype"))},
+      {~c"META-INF/container.xml", File.read!(Path.join(meta_inf_dir, "container.xml"))},
+      {~c"OEBPS/content.opf", File.read!(Path.join(oebps_dir, "content.opf"))},
+      {~c"OEBPS/chapter1.xhtml", File.read!(Path.join(oebps_dir, "chapter1.xhtml"))}
+    ]
+
+    _ =
+      :zip.create(String.to_charlist(epub_path), files,
+        compress: [~c".xhtml", ~c".opf", ~c".xml"]
+      )
+
+    File.rm_rf!(temp_dir)
   end
 end

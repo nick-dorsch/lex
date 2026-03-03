@@ -168,6 +168,24 @@
     color: var(--warm-text-muted);
   }
 
+  .language-badge {
+    @apply inline-flex items-center mt-3 px-2.5 py-1 text-xs font-medium rounded-full;
+    border: 1px solid transparent;
+  }
+
+  .language-badge.known {
+    background-color: rgba(56, 189, 248, 0.18);
+    color: #bae6fd;
+    border-color: rgba(56, 189, 248, 0.45);
+  }
+
+  .language-badge.unknown {
+    background-color: rgba(239, 68, 68, 0.2);
+    color: #fecaca;
+    border-color: rgba(248, 113, 113, 0.6);
+    box-shadow: 0 0 0 1px rgba(185, 28, 28, 0.2);
+  }
+
   /* Item Actions */
   .item-actions {
     @apply absolute bottom-0 left-0 right-0 p-4;
