@@ -1,6 +1,8 @@
 defmodule Lex.LLM.ClientTest do
   use Lex.DataCase, async: false
 
+  import ExUnit.CaptureLog
+
   alias Lex.LLM.Client
   alias Lex.LLM.ClientMock
   alias Lex.LLM.SessionConnectionOwner
@@ -404,6 +406,41 @@ defmodule Lex.LLM.ClientTest do
   end
 
   describe "connection owner retry behavior" do
+    test "logs TTFT transport path for newly connected and reused requests" do
+      Application.delete_env(:lex, :llm_client)
+      TestLLMStreamingPlug.ensure_counter!()
+
+      port = random_available_port()
+
+      start_supervised!(
+        {Plug.Cowboy,
+         scheme: :http,
+         plug: TestLLMStreamingPlug,
+         options: [port: port, protocol_options: [idle_timeout: 30_000]]}
+      )
+
+      Application.put_env(:lex, :llm_base_url, "http://127.0.0.1:#{port}")
+      Application.put_env(:lex, :llm_timeout_ms, 2_000)
+
+      {:ok, owner} = SessionConnectionOwner.start_link()
+      original_level = Logger.level()
+      Logger.configure(level: :info)
+
+      on_exit(fn ->
+        Logger.configure(level: original_level)
+      end)
+
+      log =
+        capture_log(fn ->
+          assert_stream_done(owner)
+          assert_stream_done(owner)
+        end)
+
+      assert log =~ "LLM first token latency"
+      assert log =~ "transport_path=newly_connected"
+      assert log =~ "transport_path="
+    end
+
     test "reconnects once and retries transparently on stale reusable connection" do
       Application.delete_env(:lex, :llm_client)
       TestLLMStreamingPlug.ensure_counter!()
@@ -421,12 +458,24 @@ defmodule Lex.LLM.ClientTest do
       Application.put_env(:lex, :llm_timeout_ms, 500)
 
       {:ok, owner} = SessionConnectionOwner.start_link()
+      original_level = Logger.level()
+      Logger.configure(level: :info)
 
-      assert_stream_done(owner)
-      Process.sleep(120)
-      assert_stream_done(owner)
+      on_exit(fn ->
+        Logger.configure(level: original_level)
+      end)
+
+      log =
+        capture_log(fn ->
+          assert_stream_done(owner)
+          Process.sleep(300)
+          assert_stream_done(owner)
+        end)
 
       assert TestLLMStreamingPlug.request_count() in [2, 3]
+      assert log =~ "LLM reconnect attempt after transport failure"
+      assert log =~ "LLM reconnect succeeded"
+      assert log =~ "transport_path=reconnected_after_retry"
     end
 
     test "does not retry non-recoverable HTTP status errors" do

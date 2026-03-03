@@ -24,6 +24,7 @@ defmodule Lex.LLM.Client do
   @type chunk_callback ::
           ({:chunk, String.t()} | {:done, map()} | {:error, term()} -> any())
   @type stream_opt :: {:connection_owner, GenServer.server()}
+  @type transport_path :: :newly_connected | :reused | :reconnected_after_retry
 
   @doc """
   Stream a chat completion from the LLM API.
@@ -129,7 +130,7 @@ defmodule Lex.LLM.Client do
     # Use Mint for streaming HTTP
     uri = URI.parse(url)
 
-    with_connection(uri, timeout, opts, fn conn ->
+    with_connection(uri, timeout, opts, fn conn, transport_path ->
       request_sent_at_ms = System.monotonic_time(:millisecond)
 
       case Mint.HTTP.request(
@@ -140,7 +141,17 @@ defmodule Lex.LLM.Client do
              body
            ) do
         {:ok, conn, _request_ref} ->
-          stream_response(conn, callback, "", [], timeout, request_sent_at_ms, false, false)
+          stream_response(
+            conn,
+            callback,
+            "",
+            [],
+            timeout,
+            request_sent_at_ms,
+            false,
+            false,
+            transport_path
+          )
 
         {:error, conn, reason} ->
           Mint.HTTP.close(conn)
@@ -156,12 +167,13 @@ defmodule Lex.LLM.Client do
     case Keyword.get(opts, :connection_owner) do
       nil ->
         with {:ok, conn} <- connect(uri, timeout) do
-          finalize_non_owned_connection(request_fun.(conn), conn)
+          finalize_non_owned_connection(request_fun.(conn, :newly_connected), conn)
         end
 
       owner ->
         connect_fun = fn -> connect(uri, timeout) end
-        with_owned_connection(owner, connect_fun, request_fun, 1)
+        transport_path = owner_transport_path(owner)
+        with_owned_connection(owner, connect_fun, request_fun, 1, transport_path)
     end
   end
 
@@ -178,14 +190,28 @@ defmodule Lex.LLM.Client do
     {:error, reason}
   end
 
-  defp with_owned_connection(owner, connect_fun, request_fun, retries_left) do
+  defp with_owned_connection(owner, connect_fun, request_fun, retries_left, transport_path) do
     with {:ok, conn} <- SessionConnectionOwner.get_or_connect(owner, connect_fun) do
-      handle_owned_request_result(owner, connect_fun, request_fun, conn, retries_left)
+      handle_owned_request_result(
+        owner,
+        connect_fun,
+        request_fun,
+        conn,
+        retries_left,
+        transport_path
+      )
     end
   end
 
-  defp handle_owned_request_result(owner, connect_fun, request_fun, conn, retries_left) do
-    case request_fun.(conn) do
+  defp handle_owned_request_result(
+         owner,
+         connect_fun,
+         request_fun,
+         conn,
+         retries_left,
+         transport_path
+       ) do
+    case request_fun.(conn, transport_path) do
       {:ok, updated_conn} ->
         with :ok <- return_connection_to_owner(updated_conn, owner) do
           :ok = SessionConnectionOwner.put_connection(owner, updated_conn)
@@ -197,7 +223,13 @@ defmodule Lex.LLM.Client do
         {:error, reason}
 
       {:error, _maybe_conn, _reason, _retryable?, _chunk_emitted?} = error_tuple ->
-        handle_owned_request_error(owner, connect_fun, request_fun, retries_left, error_tuple)
+        handle_owned_request_error(
+          owner,
+          connect_fun,
+          request_fun,
+          retries_left,
+          error_tuple
+        )
     end
   end
 
@@ -213,14 +245,39 @@ defmodule Lex.LLM.Client do
     should_retry = retries_left > 0 and retryable? and not chunk_emitted?
 
     if should_retry do
+      Logger.info(
+        "LLM reconnect attempt after transport failure: reason=#{inspect(reason)} retries_left=#{retries_left}"
+      )
+
       :ok = SessionConnectionOwner.mark_unhealthy(owner, reason)
 
-      with {:ok, _conn} <- SessionConnectionOwner.reconnect(owner, connect_fun) do
-        with_owned_connection(owner, connect_fun, request_fun, retries_left - 1)
+      case SessionConnectionOwner.reconnect(owner, connect_fun) do
+        {:ok, _conn} ->
+          Logger.info("LLM reconnect succeeded")
+
+          with_owned_connection(
+            owner,
+            connect_fun,
+            request_fun,
+            retries_left - 1,
+            :reconnected_after_retry
+          )
+
+        {:error, reconnect_reason} ->
+          Logger.info("LLM reconnect failed: reason=#{inspect(reconnect_reason)}")
+          {:error, reconnect_reason}
       end
     else
       :ok = SessionConnectionOwner.mark_unhealthy(owner, reason)
       {:error, reason}
+    end
+  end
+
+  defp owner_transport_path(owner) do
+    if SessionConnectionOwner.current_connection(owner) do
+      :reused
+    else
+      :newly_connected
     end
   end
 
@@ -268,7 +325,8 @@ defmodule Lex.LLM.Client do
          timeout,
          request_sent_at_ms,
          first_token_logged,
-         chunk_emitted
+         chunk_emitted,
+         transport_path
        ) do
     receive do
       message ->
@@ -283,7 +341,8 @@ defmodule Lex.LLM.Client do
               timeout,
               request_sent_at_ms,
               first_token_logged,
-              chunk_emitted
+              chunk_emitted,
+              transport_path
             )
 
           {:ok, conn, responses} ->
@@ -297,7 +356,8 @@ defmodule Lex.LLM.Client do
                 callback,
                 request_sent_at_ms,
                 first_token_logged,
-                chunk_emitted
+                chunk_emitted,
+                transport_path
               )
 
             case done do
@@ -317,7 +377,8 @@ defmodule Lex.LLM.Client do
                   timeout,
                   request_sent_at_ms,
                   new_first_token_logged,
-                  new_chunk_emitted
+                  new_chunk_emitted,
+                  transport_path
                 )
             end
 
@@ -342,7 +403,8 @@ defmodule Lex.LLM.Client do
          callback,
          request_sent_at_ms,
          first_token_logged,
-         chunk_emitted
+         chunk_emitted,
+         transport_path
        ) do
     Enum.reduce(
       responses,
@@ -368,7 +430,8 @@ defmodule Lex.LLM.Client do
                 callback,
                 request_sent_at_ms,
                 token_logged,
-                emitted_chunk?
+                emitted_chunk?,
+                transport_path
               )
 
             {conn, new_buf, new_chunks, merge_done(done, is_done), new_token_logged,
@@ -390,7 +453,8 @@ defmodule Lex.LLM.Client do
          callback,
          request_sent_at_ms,
          first_token_logged,
-         chunk_emitted
+         chunk_emitted,
+         transport_path
        ) do
     buffer
     |> String.split("\n\n", trim: false)
@@ -400,7 +464,8 @@ defmodule Lex.LLM.Client do
       callback,
       request_sent_at_ms,
       first_token_logged,
-      chunk_emitted
+      chunk_emitted,
+      transport_path
     )
   end
 
@@ -411,7 +476,8 @@ defmodule Lex.LLM.Client do
          _callback,
          _request_sent_at_ms,
          first_token_logged,
-         chunk_emitted
+         chunk_emitted,
+         _transport_path
        ),
        do: {Enum.join(remaining, "\n\n"), chunks_acc, false, first_token_logged, chunk_emitted}
 
@@ -422,7 +488,8 @@ defmodule Lex.LLM.Client do
          _callback,
          _request_sent_at_ms,
          first_token_logged,
-         chunk_emitted
+         chunk_emitted,
+         _transport_path
        ) do
     # Last incomplete chunk
     {Enum.join(remaining ++ [last], "\n\n"), chunks_acc, false, first_token_logged, chunk_emitted}
@@ -435,7 +502,8 @@ defmodule Lex.LLM.Client do
          _callback,
          _request_sent_at_ms,
          first_token_logged,
-         chunk_emitted
+         chunk_emitted,
+         _transport_path
        ) do
     # Single line that might be incomplete
     {"", chunks_acc, false, first_token_logged, chunk_emitted}
@@ -448,7 +516,8 @@ defmodule Lex.LLM.Client do
          callback,
          request_sent_at_ms,
          first_token_logged,
-         chunk_emitted
+         chunk_emitted,
+         transport_path
        ) do
     case parse_sse_line(line) do
       :done ->
@@ -459,7 +528,8 @@ defmodule Lex.LLM.Client do
 
         if should_log_ttft do
           ttft_ms = System.monotonic_time(:millisecond) - request_sent_at_ms
-          Logger.info("LLM first token latency: #{ttft_ms}ms")
+
+          Logger.info("LLM first token latency: #{ttft_ms}ms (transport_path=#{transport_path})")
         end
 
         callback.({:chunk, content})
@@ -471,7 +541,8 @@ defmodule Lex.LLM.Client do
           callback,
           request_sent_at_ms,
           first_token_logged or should_log_ttft,
-          true
+          true,
+          transport_path
         )
 
       :skip ->
@@ -482,7 +553,8 @@ defmodule Lex.LLM.Client do
           callback,
           request_sent_at_ms,
           first_token_logged,
-          chunk_emitted
+          chunk_emitted,
+          transport_path
         )
 
       :incomplete ->
@@ -493,7 +565,8 @@ defmodule Lex.LLM.Client do
           callback,
           request_sent_at_ms,
           first_token_logged,
-          chunk_emitted
+          chunk_emitted,
+          transport_path
         )
     end
   end
