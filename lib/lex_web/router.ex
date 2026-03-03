@@ -20,6 +20,7 @@ defmodule LexWeb.Router do
     get("/calibre/covers/:token", CalibreCoverController, :show)
     live("/", LibraryLive.Index)
     live("/library", LibraryLive.Index)
+    live("/stats", StatsLive.Index)
     live("/read/:document_id", ReaderLive.Show)
   end
 

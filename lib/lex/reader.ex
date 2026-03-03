@@ -440,6 +440,73 @@ defmodule Lex.Reader do
   end
 
   @doc """
+  Rewinds to section start.
+
+  If the current sentence is not the first sentence in the current section,
+  returns the first sentence of the current section.
+
+  If the current sentence is already the first sentence in the current section,
+  returns the first sentence of the previous non-empty section.
+
+  If already at the first sentence of the first non-empty section,
+  returns `{:error, :start_of_document}`.
+  """
+  @spec rewind_to_section_start(integer(), integer(), integer()) ::
+          {:ok, %{section: Section.t(), sentence: Sentence.t()}} | {:error, :start_of_document}
+  def rewind_to_section_start(document_id, current_section_id, current_sentence_id) do
+    current_section = Repo.get(Section, current_section_id)
+
+    current_section_first_sentence =
+      Sentence
+      |> where(section_id: ^current_section_id)
+      |> order_by(asc: :position)
+      |> limit(1)
+      |> Repo.one()
+
+    case current_section_first_sentence do
+      nil ->
+        {:error, :start_of_document}
+
+      %Sentence{id: ^current_sentence_id} ->
+        find_previous_section_first_sentence(document_id, current_section.position)
+
+      %Sentence{} = sentence ->
+        {:ok, %{section: current_section, sentence: sentence}}
+    end
+  end
+
+  defp find_previous_section_first_sentence(document_id, before_position) do
+    previous_section =
+      Section
+      |> where(document_id: ^document_id)
+      |> where([s], s.position < ^before_position)
+      |> order_by(desc: :position)
+      |> limit(1)
+      |> Repo.one()
+
+    case previous_section do
+      nil ->
+        {:error, :start_of_document}
+
+      %Section{} = section ->
+        first_sentence =
+          Sentence
+          |> where(section_id: ^section.id)
+          |> order_by(asc: :position)
+          |> limit(1)
+          |> Repo.one()
+
+        case first_sentence do
+          nil ->
+            find_previous_section_first_sentence(document_id, section.position)
+
+          %Sentence{} = sentence ->
+            {:ok, %{section: section, sentence: sentence}}
+        end
+    end
+  end
+
+  @doc """
   Logs a reading event for analytics.
 
   Creates a reading event record with the given user_id, event_type, and metadata.

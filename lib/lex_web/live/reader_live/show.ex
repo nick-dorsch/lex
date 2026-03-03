@@ -98,6 +98,11 @@ defmodule LexWeb.ReaderLive.Show do
   end
 
   @impl true
+  def handle_event("previous_section", _params, socket) do
+    handle_previous_section(socket)
+  end
+
+  @impl true
   def handle_event("navigate_to_library", _params, socket) do
     {:noreply, push_navigate(socket, to: ~p"/library")}
   end
@@ -483,6 +488,64 @@ defmodule LexWeb.ReaderLive.Show do
 
       {:error, :end_of_document} ->
         # Stay at current position
+        {:noreply, socket}
+    end
+  end
+
+  # Handles rewind to section start navigation
+  defp handle_previous_section(socket) do
+    socket = maybe_dismiss_popup(socket)
+    user_id = socket.assigns.user_id
+    document = socket.assigns.document
+    section = socket.assigns.section
+    sentence = socket.assigns.sentence
+
+    case Reader.rewind_to_section_start(document.id, section.id, sentence.id) do
+      {:ok, %{section: new_section, sentence: new_sentence}} ->
+        {:ok, _} = Reader.set_position(user_id, document.id, new_section.id, new_sentence.id)
+
+        tokens = load_tokens(new_sentence.id)
+        lexeme_ids = Enum.map(tokens, & &1.lexeme_id) |> Enum.reject(&is_nil/1)
+        lexeme_states = load_lexeme_states(user_id, lexeme_ids)
+
+        prev_sentences =
+          load_context_sentences(
+            document.id,
+            new_section.id,
+            new_sentence.id,
+            :previous,
+            @context_sentence_count
+          )
+
+        next_sentences =
+          load_context_sentences(
+            document.id,
+            new_section.id,
+            new_sentence.id,
+            :next,
+            @context_sentence_count
+          )
+
+        {:ok, new_section_progress} = Reader.get_section_progress(new_section.id, new_sentence.id)
+        {:ok, new_document_progress} = Reader.get_document_progress(document.id, new_sentence.id)
+
+        {:noreply,
+         socket
+         |> assign(
+           section: new_section,
+           sentence: new_sentence,
+           tokens: tokens,
+           lexeme_states: lexeme_states,
+           prev_sentences: prev_sentences,
+           next_sentences: next_sentences,
+           section_progress: new_section_progress,
+           document_progress: new_document_progress,
+           focused_token_index: 0,
+           help_requested: false,
+           vocab_counts: load_vocab_counts(user_id)
+         )}
+
+      {:error, :start_of_document} ->
         {:noreply, socket}
     end
   end

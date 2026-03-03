@@ -1,0 +1,85 @@
+<div class="stats-container">
+  <div class="stats-header">
+    <h1>Stats</h1>
+    <.link navigate={~p"/library"} class="header-link-btn">
+      Library
+    </.link>
+  </div>
+
+  <div class="stats-cards">
+    <div class="stats-card">
+      <p class="stats-label">Words Read</p>
+      <p class="stats-value"><%= @counts.read %></p>
+    </div>
+    <div class="stats-card">
+      <p class="stats-label">Words Learning</p>
+      <p class="stats-value"><%= @counts.learning %></p>
+    </div>
+    <div class="stats-card">
+      <p class="stats-label">Words Known</p>
+      <p class="stats-value"><%= @counts.known %></p>
+    </div>
+  </div>
+
+  <div class="stats-chart-panel">
+    <div class="stats-chart-header">
+      <h2>Cumulative Vocabulary Timeline</h2>
+      <div class="stats-legend">
+        <span><i class="legend-dot read"></i>Read</span>
+        <span><i class="legend-dot learning"></i>Learning</span>
+        <span><i class="legend-dot known"></i>Known</span>
+      </div>
+    </div>
+
+    <%= if Enum.empty?(@timeline) do %>
+      <p class="stats-empty">No reading activity yet.</p>
+    <% else %>
+      <svg viewBox="0 0 820 260" class="stats-chart" role="img" aria-label="Vocabulary growth chart">
+        <%= for line <- @chart.grid_lines do %>
+          <line x1="56" y1={line.y} x2="804" y2={line.y} class="grid-line" />
+          <text x="8" y={line.y + 4} class="grid-label"><%= line.value %></text>
+        <% end %>
+
+        <polyline points={@chart.read} class="series read" />
+        <polyline points={@chart.learning} class="series learning" />
+        <polyline points={@chart.known} class="series known" />
+
+        <text x="56" y="250" class="axis-label"><%= @chart.labels.start %></text>
+        <text x="804" y="250" text-anchor="end" class="axis-label"><%= @chart.labels.end %></text>
+      </svg>
+    <% end %>
+  </div>
+
+  <div class="stats-books-grid">
+    <div class="stats-books-panel">
+      <h2>In Progress</h2>
+      <%= if Enum.empty?(@books_in_progress) do %>
+        <p class="stats-empty">No books in progress.</p>
+      <% else %>
+        <%= for book <- @books_in_progress do %>
+          <div class="book-progress-row">
+            <p class="book-title"><%= book.title %></p>
+            <p class="book-meta"><%= book.read_sentences %>/<%= book.total_sentences %> sentences</p>
+            <div class="book-progress-bar">
+              <div class="book-progress-fill" style={"width: #{book.progress}%"}></div>
+            </div>
+          </div>
+        <% end %>
+      <% end %>
+    </div>
+
+    <div class="stats-books-panel">
+      <h2>Completed</h2>
+      <%= if Enum.empty?(@books_completed) do %>
+        <p class="stats-empty">No books completed yet.</p>
+      <% else %>
+        <%= for book <- @books_completed do %>
+          <div class="book-completed-row">
+            <p class="book-title"><%= book.title %></p>
+            <p class="book-meta"><%= book.total_sentences %> sentences read</p>
+          </div>
+        <% end %>
+      <% end %>
+    </div>
+  </div>
+</div>

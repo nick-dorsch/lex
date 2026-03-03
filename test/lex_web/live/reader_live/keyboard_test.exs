@@ -366,6 +366,54 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       html = render(view)
       assert html =~ "Chapter 2"
     end
+
+    test "previous section button rewinds to start of current section", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section_with_position(document, 1, "Chapter 1")
+      sentence1 = create_sentence(section, 1, "First chapter sentence.")
+      sentence2 = create_sentence(section, 2, "Second chapter sentence.")
+      create_tokens_for_sentence(sentence1, ["First", "chapter", "sentence", "."])
+      create_tokens_for_sentence(sentence2, ["Second", "chapter", "sentence", "."])
+
+      {:ok, view, html} = live(conn, "/read/#{document.id}")
+      assert html =~ "First"
+
+      # Move to second sentence in same section
+      html = render_hook(view, :key_nav, %{"key" => "j"})
+      assert html =~ "Second"
+
+      # Rewind to section start
+      html = render_click(view, :previous_section)
+      assert html =~ "First"
+    end
+
+    test "previous section button goes to previous section start when at section start", %{
+      conn: conn
+    } do
+      user = create_user()
+      document = create_ready_document(user)
+      section1 = create_section_with_position(document, 1, "Chapter 1")
+      section2 = create_section_with_position(document, 2, "Chapter 2")
+      sentence1a = create_sentence(section1, 1, "Chapter one first.")
+      _sentence1b = create_sentence(section1, 2, "Chapter one second.")
+      sentence2a = create_sentence(section2, 1, "Chapter two first.")
+      create_tokens_for_sentence(sentence1a, ["Chapter", "one", "first", "."])
+      create_tokens_for_sentence(sentence2a, ["Chapter", "two", "first", "."])
+
+      {:ok, view, html} = live(conn, "/read/#{document.id}")
+      assert html =~ "Chapter 1"
+
+      # Skip forward to start of section 2
+      html = render_click(view, :skip_section)
+      assert html =~ "Chapter 2"
+      assert html =~ "two"
+
+      # Rewind should go to start of previous section
+      html = render_click(view, :previous_section)
+      assert html =~ "Chapter 1"
+      assert html =~ "one"
+    end
   end
 
   describe "token click to focus" do

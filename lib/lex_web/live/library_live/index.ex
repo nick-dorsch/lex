@@ -37,11 +37,9 @@ defmodule LexWeb.LibraryLive.Index do
   def mount(_params, _session, socket) do
     user_id = get_user_id(socket)
 
-    # Subscribe to import updates for this user
-    PubSub.subscribe(Lex.PubSub, ImportTracker.topic(user_id))
+    subscribe_to_import_updates(user_id)
 
-    # Load unified library view
-    items = load_unified_library(user_id)
+    items = if user_id, do: load_unified_library(user_id), else: []
 
     {:ok,
      socket
@@ -216,7 +214,7 @@ defmodule LexWeb.LibraryLive.Index do
 
   @impl true
   def handle_event("validate_profile_setup", %{"profile" => profile_params}, socket) do
-    user = Repo.get!(User, socket.assigns.user_id)
+    user = load_user(socket.assigns.user_id)
     params = normalize_profile_params(profile_params)
 
     {:noreply,
@@ -227,15 +225,19 @@ defmodule LexWeb.LibraryLive.Index do
 
   @impl true
   def handle_event("save_profile_setup", %{"profile" => profile_params}, socket) do
-    user = Repo.get!(User, socket.assigns.user_id)
+    user = load_user(socket.assigns.user_id)
     params = normalize_profile_params(profile_params)
     changeset = profile_changeset(user, params, :validate)
 
     if changeset.valid? do
       case save_profile_setup(user, params) do
-        {:ok, _updated_user} ->
+        {:ok, updated_user} ->
+          maybe_subscribe_to_import_updates(socket.assigns.user_id, updated_user.id)
+
           {:noreply,
            socket
+           |> assign(:user_id, updated_user.id)
+           |> assign(:items, load_unified_library(updated_user.id))
            |> assign(:show_profile_setup_modal, false)
            |> put_flash(:info, "Profile setup complete")}
 
@@ -253,32 +255,31 @@ defmodule LexWeb.LibraryLive.Index do
     end
   end
 
-  @impl true
-  def handle_event("dismiss_profile_setup_modal", _params, socket) do
-    {:noreply, socket}
-  end
-
   defp get_user_id(socket) do
     case socket.assigns[:current_user] do
       %{id: user_id} -> user_id
-      _ -> ensure_default_user_id()
+      _ -> first_user_id()
     end
   end
 
-  defp ensure_default_user_id do
-    case Repo.one(from(u in User, order_by: [asc: u.id], limit: 1, select: u.id)) do
-      user_id when is_integer(user_id) ->
-        user_id
+  defp first_user_id,
+    do: Repo.one(from(u in User, order_by: [asc: u.id], limit: 1, select: u.id))
 
-      nil ->
-        attrs = %{name: "Default User", email: "default@lex.local", primary_language: "en"}
+  defp subscribe_to_import_updates(nil), do: :ok
 
-        case %User{} |> User.changeset(attrs) |> Repo.insert() do
-          {:ok, user} -> user.id
-          {:error, _changeset} -> Repo.get_by!(User, email: attrs.email).id
-        end
-    end
+  defp subscribe_to_import_updates(user_id) do
+    PubSub.subscribe(Lex.PubSub, ImportTracker.topic(user_id))
   end
+
+  defp maybe_subscribe_to_import_updates(current_user_id, new_user_id)
+       when is_nil(current_user_id) and is_integer(new_user_id) do
+    subscribe_to_import_updates(new_user_id)
+  end
+
+  defp maybe_subscribe_to_import_updates(_current_user_id, _new_user_id), do: :ok
+
+  defp load_user(nil), do: nil
+  defp load_user(user_id), do: Repo.get(User, user_id)
 
   defp calibre_available? do
     path = Library.calibre_library_path()
@@ -286,7 +287,7 @@ defmodule LexWeb.LibraryLive.Index do
   end
 
   defp assign_profile_setup_state(socket, user_id) do
-    user = Repo.get!(User, user_id)
+    user = load_user(user_id)
     target_languages = load_target_languages(user_id)
     params = default_profile_params(user, target_languages)
 
@@ -297,12 +298,11 @@ defmodule LexWeb.LibraryLive.Index do
     |> assign(:target_language_options, target_language_options())
   end
 
-  defp requires_profile_setup?(user, target_languages) do
-    default_startup_user?(user) and
-      (blank?(user.name) or blank?(user.email) or target_languages == [] or invalid_email?(user))
-  end
+  defp requires_profile_setup?(nil, _target_languages), do: true
 
-  defp default_startup_user?(user), do: user.email == "default@lex.local"
+  defp requires_profile_setup?(user, target_languages) do
+    blank?(user.name) or blank?(user.email) or target_languages == [] or invalid_email?(user)
+  end
 
   defp invalid_email?(user) do
     changeset =
@@ -317,6 +317,14 @@ defmodule LexWeb.LibraryLive.Index do
 
   defp blank?(value) when is_binary(value), do: String.trim(value) == ""
   defp blank?(_value), do: true
+
+  defp default_profile_params(nil, target_languages) do
+    %{
+      "name" => "",
+      "email" => "",
+      "target_languages" => target_languages
+    }
+  end
 
   defp default_profile_params(user, target_languages) do
     %{
@@ -350,16 +358,23 @@ defmodule LexWeb.LibraryLive.Index do
   defp normalize_target_languages(_target_languages), do: []
 
   defp profile_changeset(user, profile_params, action) do
+    user = user || %User{}
+
     attrs = %{
       name: profile_params["name"],
       email: profile_params["email"],
       primary_language: user.primary_language || "en"
     }
 
-    changeset = User.changeset(user, attrs)
+    changeset =
+      if action do
+        User.changeset(user, attrs)
+      else
+        Ecto.Changeset.change(user, attrs)
+      end
 
     changeset =
-      if profile_params["target_languages"] == [] do
+      if not is_nil(action) and profile_params["target_languages"] == [] do
         Ecto.Changeset.add_error(
           changeset,
           :target_languages,
@@ -376,6 +391,8 @@ defmodule LexWeb.LibraryLive.Index do
     end
   end
 
+  defp load_target_languages(nil), do: []
+
   defp load_target_languages(user_id) do
     UserTargetLanguage
     |> where([utl], utl.user_id == ^user_id)
@@ -388,38 +405,50 @@ defmodule LexWeb.LibraryLive.Index do
     user_attrs = %{
       name: profile_params["name"],
       email: profile_params["email"],
-      primary_language: user.primary_language || "en"
+      primary_language: (user && user.primary_language) || "en"
     }
 
     target_languages = profile_params["target_languages"]
 
     Repo.transaction(fn ->
-      case user |> User.changeset(user_attrs) |> Repo.update() do
+      case persist_profile_user(user, user_attrs) do
         {:ok, updated_user} ->
-          Repo.delete_all(from(utl in UserTargetLanguage, where: utl.user_id == ^updated_user.id))
-
-          Enum.reduce_while(target_languages, {:ok, updated_user}, fn language_code,
-                                                                      {:ok, user_acc} ->
-            %UserTargetLanguage{}
-            |> UserTargetLanguage.changeset(%{
-              user_id: updated_user.id,
-              language_code: language_code
-            })
-            |> Repo.insert()
-            |> case do
-              {:ok, _target_language} -> {:cont, {:ok, user_acc}}
-              {:error, changeset} -> Repo.rollback(changeset)
-            end
-          end)
+          case persist_target_languages(updated_user, target_languages) do
+            {:ok, updated_user} -> updated_user
+            {:error, changeset} -> Repo.rollback(changeset)
+          end
 
         {:error, changeset} ->
           Repo.rollback(changeset)
       end
     end)
     |> case do
-      {:ok, {:ok, updated_user}} -> {:ok, updated_user}
+      {:ok, updated_user} -> {:ok, updated_user}
       {:error, %Ecto.Changeset{} = changeset} -> {:error, changeset}
     end
+  end
+
+  defp persist_profile_user(nil, user_attrs),
+    do: %User{} |> User.changeset(user_attrs) |> Repo.insert()
+
+  defp persist_profile_user(user, user_attrs),
+    do: user |> User.changeset(user_attrs) |> Repo.update()
+
+  defp persist_target_languages(user, target_languages) do
+    Repo.delete_all(from(utl in UserTargetLanguage, where: utl.user_id == ^user.id))
+
+    Enum.reduce_while(target_languages, {:ok, user}, fn language_code, {:ok, user_acc} ->
+      %UserTargetLanguage{}
+      |> UserTargetLanguage.changeset(%{
+        user_id: user.id,
+        language_code: language_code
+      })
+      |> Repo.insert()
+      |> case do
+        {:ok, _target_language} -> {:cont, {:ok, user_acc}}
+        {:error, changeset} -> {:halt, {:error, changeset}}
+      end
+    end)
   end
 
   defp target_language_options do

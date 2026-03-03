@@ -56,7 +56,8 @@ defmodule Lex.MixProject do
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       "assets.setup": ["tailwind.install --if-missing"],
-      "assets.build": ["tailwind lex"]
+      "assets.build": ["tailwind lex"],
+      "assets.deploy": ["tailwind lex --minify", "phx.digest"]
     ]
   end
 end

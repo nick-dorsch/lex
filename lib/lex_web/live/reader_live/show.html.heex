@@ -26,14 +26,24 @@
               <p class="reader-footer-title"><%= @document.title || "Untitled Document" %></p>
               <p class="reader-footer-author"><%= @document.author || "Unknown Author" %></p>
             </div>
-            <button
-              class="skip-section-btn text-xs px-2 py-1 rounded transition-colors flex items-center gap-1"
-              phx-click="skip_section"
-              title="Skip to next section (s key)"
-            >
-            <span>↷</span>
-            <span class="hidden sm:inline">Skip Section</span>
-          </button>
+            <div class="flex items-center gap-2">
+              <button
+                class="skip-section-btn text-xs px-2 py-1 rounded transition-colors flex items-center gap-1"
+                phx-click="previous_section"
+                title="Go to section start"
+              >
+                <span>↶</span>
+                <span class="hidden sm:inline">Previous Section</span>
+              </button>
+              <button
+                class="skip-section-btn text-xs px-2 py-1 rounded transition-colors flex items-center gap-1"
+                phx-click="skip_section"
+                title="Skip to next section (s key)"
+              >
+                <span>↷</span>
+                <span class="hidden sm:inline">Skip Section</span>
+              </button>
+            </div>
         </div>
         <!-- Section progress bar -->
         <div class="reader-progress-bar w-[calc(100%+2rem)] -mx-4 h-px overflow-hidden">

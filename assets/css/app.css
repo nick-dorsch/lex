@@ -41,6 +41,10 @@
     @apply flex items-center justify-between mb-8;
   }
 
+  .library-header-actions {
+    @apply flex items-center gap-3;
+  }
+
   .library-header h1 {
     @apply text-3xl font-bold;
     color: var(--warm-text);
@@ -63,6 +67,188 @@
   .refresh-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  .header-link-btn {
+    @apply inline-flex items-center px-4 py-2 rounded-lg font-medium transition-all duration-200;
+    background-color: transparent;
+    border: 1px solid var(--warm-border);
+    color: var(--warm-text-muted);
+  }
+
+  .header-link-btn:hover {
+    background-color: var(--warm-surface-strong);
+    border-color: var(--warm-border-strong);
+    color: var(--warm-text);
+  }
+
+  /* Stats Page */
+  .stats-container {
+    @apply max-w-7xl mx-auto px-4 py-8 min-h-screen;
+  }
+
+  .stats-header {
+    @apply flex items-center justify-between mb-8;
+  }
+
+  .stats-header h1 {
+    @apply text-3xl font-bold;
+    color: var(--warm-text);
+  }
+
+  .stats-cards {
+    @apply grid gap-4 mb-6;
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+
+  @media (min-width: 640px) {
+    .stats-cards {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  .stats-card {
+    @apply p-2;
+    background-color: transparent;
+    border: none;
+  }
+
+  .stats-label {
+    @apply text-xs uppercase tracking-wider mb-2;
+    color: var(--warm-text-subtle);
+  }
+
+  .stats-value {
+    @apply text-3xl font-semibold;
+    color: var(--warm-text);
+  }
+
+  .stats-chart-panel,
+  .stats-books-panel {
+    @apply p-2;
+    background-color: transparent;
+    border: none;
+  }
+
+  .stats-chart-header {
+    @apply flex flex-col gap-3 mb-4;
+  }
+
+  @media (min-width: 768px) {
+    .stats-chart-header {
+      @apply flex-row items-center justify-between;
+    }
+  }
+
+  .stats-chart-header h2,
+  .stats-books-panel h2 {
+    @apply text-lg font-semibold;
+    color: var(--warm-text);
+  }
+
+  .stats-legend {
+    @apply flex items-center gap-4 text-xs;
+    color: var(--warm-text-muted);
+  }
+
+  .stats-legend span {
+    @apply inline-flex items-center gap-2;
+  }
+
+  .legend-dot {
+    @apply inline-block w-2.5 h-2.5 rounded-full;
+  }
+
+  .legend-dot.read {
+    background-color: #60a5fa;
+  }
+
+  .legend-dot.learning {
+    background-color: #f59e0b;
+  }
+
+  .legend-dot.known {
+    background-color: #34d399;
+  }
+
+  .stats-chart {
+    @apply w-full h-auto;
+  }
+
+  .stats-chart .grid-line {
+    stroke: rgba(213, 194, 166, 0.2);
+    stroke-width: 1;
+  }
+
+  .stats-chart .grid-label,
+  .stats-chart .axis-label {
+    fill: var(--warm-text-subtle);
+    font-size: 11px;
+  }
+
+  .stats-chart .series {
+    fill: none;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .stats-chart .series.read {
+    stroke: #60a5fa;
+  }
+
+  .stats-chart .series.learning {
+    stroke: #f59e0b;
+  }
+
+  .stats-chart .series.known {
+    stroke: #34d399;
+  }
+
+  .stats-books-grid {
+    @apply grid gap-6 mt-6;
+    grid-template-columns: 1fr;
+  }
+
+  @media (min-width: 1024px) {
+    .stats-books-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  .book-progress-row,
+  .book-completed-row {
+    @apply py-3;
+    border-bottom: 1px solid rgba(213, 194, 166, 0.14);
+  }
+
+  .stats-books-panel > :last-child {
+    border-bottom: none;
+  }
+
+  .book-title {
+    @apply text-sm font-medium;
+    color: var(--warm-text);
+  }
+
+  .book-meta {
+    @apply text-xs mt-1 mb-2;
+    color: var(--warm-text-subtle);
+  }
+
+  .book-progress-bar {
+    @apply w-full h-2 rounded-full overflow-hidden;
+    background-color: rgba(102, 83, 64, 0.8);
+  }
+
+  .book-progress-fill {
+    @apply h-full rounded-full;
+    background-color: var(--warm-gold);
+  }
+
+  .stats-empty {
+    @apply text-sm;
+    color: var(--warm-text-subtle);
   }
 
   /* Calibre Notice */
@@ -113,14 +299,15 @@
   /* Library Item Card */
   .library-item {
     @apply relative rounded-xl overflow-hidden transition-all duration-200;
-    background-color: var(--warm-surface);
-    border: 1px solid var(--warm-border);
+    background-color: transparent;
+    border: none;
     min-height: 520px;
   }
 
   .item-cover {
     @apply w-full;
     background-color: #3a2f26;
+    position: relative;
   }
 
   .item-cover img {
@@ -129,9 +316,8 @@
   }
 
   .library-item:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.5);
-    border-color: var(--warm-border-strong);
+    transform: none;
+    box-shadow: none;
   }
 
   /* Source Badge */
@@ -186,10 +372,19 @@
     box-shadow: 0 0 0 1px rgba(185, 28, 28, 0.2);
   }
 
+  .language-badge-on-cover {
+    position: absolute;
+    left: 0.6rem;
+    bottom: 0.6rem;
+    margin-top: 0;
+    backdrop-filter: blur(2px);
+    background-clip: padding-box;
+  }
+
   /* Item Actions */
   .item-actions {
     @apply absolute bottom-0 left-0 right-0 p-4;
-    background: linear-gradient(to top, var(--warm-surface), transparent);
+    background: linear-gradient(to top, rgba(41, 37, 36, 0.88), transparent);
   }
 
   /* Import Button */
@@ -266,7 +461,7 @@
 
   /* Error State */
   .library-item.error {
-    border-color: rgba(239, 68, 68, 0.5);
+    border: 1px solid rgba(239, 68, 68, 0.5);
     background-color: rgba(239, 68, 68, 0.05);
   }
 
@@ -301,7 +496,7 @@
   }
 
   .library-item.imported {
-    border-color: rgba(34, 197, 94, 0.3);
+    border: 1px solid rgba(34, 197, 94, 0.3);
   }
 
   .profile-setup-overlay {

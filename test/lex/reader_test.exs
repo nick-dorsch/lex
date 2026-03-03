@@ -599,6 +599,63 @@ defmodule Lex.ReaderTest do
     end
   end
 
+  describe "rewind_to_section_start/3" do
+    test "rewinds to first sentence of current section when not at section start" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1, %{title: "Chapter 1"})
+      sentence1 = create_sentence(section.id, 1, "First sentence.")
+      sentence2 = create_sentence(section.id, 2, "Second sentence.")
+
+      assert {:ok, %{section: returned_section, sentence: returned_sentence}} =
+               Reader.rewind_to_section_start(document.id, section.id, sentence2.id)
+
+      assert returned_section.id == section.id
+      assert returned_sentence.id == sentence1.id
+    end
+
+    test "rewinds to first sentence of previous section when at section start" do
+      user = create_user()
+      document = create_document(user.id)
+      section1 = create_section(document.id, 1, %{title: "Chapter 1"})
+      section2 = create_section(document.id, 2, %{title: "Chapter 2"})
+      sentence1 = create_sentence(section1.id, 1, "Chapter 1 sentence.")
+      sentence2 = create_sentence(section2.id, 1, "Chapter 2 sentence.")
+
+      assert {:ok, %{section: returned_section, sentence: returned_sentence}} =
+               Reader.rewind_to_section_start(document.id, section2.id, sentence2.id)
+
+      assert returned_section.id == section1.id
+      assert returned_sentence.id == sentence1.id
+    end
+
+    test "returns error at first sentence of first section" do
+      user = create_user()
+      document = create_document(user.id)
+      section = create_section(document.id, 1, %{title: "Chapter 1"})
+      sentence = create_sentence(section.id, 1, "Only sentence.")
+
+      assert {:error, :start_of_document} =
+               Reader.rewind_to_section_start(document.id, section.id, sentence.id)
+    end
+
+    test "skips empty previous sections when rewinding from section start" do
+      user = create_user()
+      document = create_document(user.id)
+      section1 = create_section(document.id, 1, %{title: "Chapter 1"})
+      _section2 = create_section(document.id, 2, %{title: "Empty Chapter"})
+      section3 = create_section(document.id, 3, %{title: "Chapter 3"})
+      sentence1 = create_sentence(section1.id, 1, "Chapter 1 sentence.")
+      sentence3 = create_sentence(section3.id, 1, "Chapter 3 sentence.")
+
+      assert {:ok, %{section: returned_section, sentence: returned_sentence}} =
+               Reader.rewind_to_section_start(document.id, section3.id, sentence3.id)
+
+      assert returned_section.id == section1.id
+      assert returned_sentence.id == sentence1.id
+    end
+  end
+
   describe "log_event/3" do
     test "logs enter_sentence event" do
       user = create_user()

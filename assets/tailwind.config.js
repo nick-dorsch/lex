@@ -9,6 +9,15 @@ module.exports = {
     "../lib/lex_web.ex",
     "../lib/lex_web/**/*.*ex"
   ],
+  safelist: [
+    "profile-blocked",
+    "profile-setup-overlay",
+    "profile-setup-modal",
+    "profile-setup-error",
+    "profile-language-options",
+    "profile-language-option",
+    "profile-setup-submit"
+  ],
   theme: {
     extend: {
       colors: {

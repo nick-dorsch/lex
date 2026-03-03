@@ -29,17 +29,17 @@ defmodule LexWeb.LibraryLive.IndexTest do
       {:ok, _view, html} = live(conn, "/library")
 
       assert html =~ "My Library"
+      assert html =~ "Stats"
       assert html =~ "No documents found."
       assert html =~ "Set CALIBRE_LIBRARY_PATH"
     end
 
-    test "creates default user when no authenticated user is available", %{conn: conn} do
+    test "does not create a user when no authenticated user is available", %{conn: conn} do
       assert Repo.aggregate(User, :count, :id) == 0
 
       {:ok, _view, _html} = live(conn, "/library")
 
-      assert Repo.aggregate(User, :count, :id) == 1
-      assert Repo.get_by(User, email: "default@lex.local")
+      assert Repo.aggregate(User, :count, :id) == 0
     end
 
     test "renders list of ready documents", %{conn: conn} do
@@ -165,19 +165,13 @@ defmodule LexWeb.LibraryLive.IndexTest do
   end
 
   describe "profile setup modal" do
-    test "auto-opens for default startup user with incomplete setup", %{conn: conn} do
+    test "auto-opens on first app load when no users exist", %{conn: conn} do
+      assert Repo.aggregate(User, :count, :id) == 0
+
       {:ok, _view, html} = live(conn, "/library")
 
       assert html =~ "Finish profile setup"
       assert html =~ "Target languages"
-    end
-
-    test "cannot be dismissed while setup is incomplete", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/library")
-
-      html = render_click(view, "dismiss_profile_setup_modal", %{})
-
-      assert html =~ "Finish profile setup"
     end
 
     test "shows validation errors for invalid email and missing target languages", %{conn: conn} do
@@ -193,7 +187,7 @@ defmodule LexWeb.LibraryLive.IndexTest do
       assert html =~ "Finish profile setup"
     end
 
-    test "persists profile and target languages on valid save", %{conn: conn} do
+    test "creates the first user and target languages on valid save", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/library")
 
       html =
@@ -283,6 +277,9 @@ defmodule LexWeb.LibraryLive.IndexTest do
       temp_root = "/tmp/lex_library_live_#{System.unique_integer([:positive])}"
       temp_book_dir = Path.join(temp_root, "Author/Book")
       file_path = Path.join(temp_book_dir, "book.epub")
+
+      user = create_user()
+      add_target_language(user, "es")
 
       File.mkdir_p!(temp_book_dir)
       File.cp!("test/fixtures/epubs/el_principito.epub", file_path)
@@ -465,6 +462,9 @@ defmodule LexWeb.LibraryLive.IndexTest do
       known_book_dir = Path.join(temp_root, "Known Author/Known Book")
       unknown_book_dir = Path.join(temp_root, "Unknown Author/Unknown Book")
 
+      user = create_user()
+      add_target_language(user, "es")
+
       File.mkdir_p!(known_book_dir)
       File.mkdir_p!(unknown_book_dir)
 
@@ -534,6 +534,12 @@ defmodule LexWeb.LibraryLive.IndexTest do
       source_file: "test.epub",
       user_id: user.id
     })
+    |> Repo.insert!()
+  end
+
+  defp add_target_language(user, language_code) do
+    %UserTargetLanguage{}
+    |> UserTargetLanguage.changeset(%{user_id: user.id, language_code: language_code})
     |> Repo.insert!()
   end
 

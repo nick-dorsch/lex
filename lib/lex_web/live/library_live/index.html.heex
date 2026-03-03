@@ -1,17 +1,22 @@
 <div class={"library-container #{if @show_profile_setup_modal, do: "profile-blocked", else: ""}"}>
   <div class="library-header">
     <h1>My Library</h1>
-    <button 
-      class="refresh-btn" 
-      phx-click="refresh_calibre"
-      disabled={@refreshing}
-    >
-      <%= if @refreshing do %>
-        Refreshing...
-      <% else %>
-        Refresh Library
-      <% end %>
-    </button>
+    <div class="library-header-actions">
+      <.link navigate={~p"/stats"} class="header-link-btn">
+        Stats
+      </.link>
+      <button
+        class="refresh-btn"
+        phx-click="refresh_calibre"
+        disabled={@refreshing}
+      >
+        <%= if @refreshing do %>
+          Refreshing...
+        <% else %>
+          Refresh Library
+        <% end %>
+      </button>
+    </div>
   </div>
 
   <%= if @calibre_available do %>
@@ -36,6 +41,12 @@
           <%= if item.cover_token do %>
             <div class="item-cover">
               <img src={~p"/calibre/covers/#{item.cover_token}"} alt={"Cover for #{item.title}"} loading="lazy" />
+
+              <%= if show_language_badge?(item) do %>
+                <span class={"#{language_badge_class(item.language)} language-badge-on-cover"}>
+                  <%= language_badge_label(item.language) %>
+                </span>
+              <% end %>
             </div>
           <% end %>
 
@@ -49,10 +60,6 @@
               <p class="item-author">by <%= item.author %></p>
             <% end %>
 
-            <%= if show_language_badge?(item) do %>
-              <span class={language_badge_class(item.language)}><%= language_badge_label(item.language) %></span>
-            <% end %>
-            
             <%= if item.import_status == :imported do %>
               <span class="source-badge imported">Imported</span>
             <% end %>
@@ -115,8 +122,8 @@
 </div>
 
 <%= if @show_profile_setup_modal do %>
-  <div class="profile-setup-overlay" phx-click="dismiss_profile_setup_modal">
-    <div class="profile-setup-modal" phx-click-away="dismiss_profile_setup_modal">
+  <div class="profile-setup-overlay">
+    <div class="profile-setup-modal">
       <h2>Finish profile setup</h2>
       <p>Set your name, email, and at least one target language to continue.</p>
 

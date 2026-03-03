@@ -9,6 +9,9 @@ config :lex, LexWeb.Endpoint,
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
+  watchers: [
+    tailwind: {Tailwind, :install_and_run, [:lex, ~w(--watch)]}
+  ],
   secret_key_base: "dev_secret_key_base_not_for_production_64_bytes_long_needed_for_encryption",
   live_reload: [
     patterns: [
