@@ -69,6 +69,7 @@ defmodule LexWeb.ReaderLive.Show do
            llm_error: nil,
            llm_content: "",
            llm_content_html: "",
+           llm_popup_word: nil,
            current_llm_request_id: nil
          )}
 
@@ -236,6 +237,7 @@ defmodule LexWeb.ReaderLive.Show do
         llm_content: "",
         llm_content_html: "",
         llm_error: nil,
+        llm_popup_word: nil,
         current_llm_request_id: nil,
         llm_loading: false
       )
@@ -625,6 +627,7 @@ defmodule LexWeb.ReaderLive.Show do
        llm_content: "",
        llm_content_html: "",
        llm_error: nil,
+       llm_popup_word: nil,
        current_llm_request_id: nil,
        llm_loading: false
      )}
@@ -667,6 +670,7 @@ defmodule LexWeb.ReaderLive.Show do
            llm_loading: false,
            llm_content: "Sentence-level help coming soon...",
            llm_content_html: render_markdown_html("Sentence-level help coming soon..."),
+           llm_popup_word: nil,
            current_llm_request_id: request.id
          )}
 
@@ -719,6 +723,7 @@ defmodule LexWeb.ReaderLive.Show do
                llm_content: "",
                llm_content_html: "",
                llm_error: nil,
+               llm_popup_word: token.surface,
                current_llm_request_id: request_id,
                current_llm_start_time: start_time
              )}
@@ -765,6 +770,7 @@ defmodule LexWeb.ReaderLive.Show do
     {:noreply,
      socket
      |> assign(
+       llm_loading: false,
        llm_content: new_content,
        llm_content_html: render_markdown_html(new_content)
      )

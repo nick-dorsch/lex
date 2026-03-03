@@ -91,7 +91,7 @@ defmodule Lex.LLM.Client do
     else
       model = get_config(:llm_model) || "gpt-4o-mini"
       timeout = get_config(:llm_timeout_ms) || 5000
-      max_tokens = get_config(:llm_max_tokens) || 100
+      max_tokens = get_config(:llm_max_tokens) || 250
 
       task =
         Task.async(fn ->

@@ -6,7 +6,7 @@
 
 @layer base {
   :root {
-    --warm-bg: #4b4035;
+    --warm-bg: #292524;
     --warm-surface: #463a2f;
     --warm-surface-strong: #3f342a;
     --warm-border: #665340;
@@ -16,6 +16,10 @@
     --warm-text-subtle: #b79e81;
     --warm-gold: #c78d3b;
     --warm-gold-soft: #ddb06d;
+  }
+
+  body {
+    background-color: var(--warm-bg);
   }
 }
 
@@ -297,9 +301,7 @@
   }
 
   .reader-chrome {
-    background-color: rgba(63, 52, 42, 0.88);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
+    background-color: var(--warm-bg);
   }
 
   .reader-chrome-top {
@@ -473,12 +475,9 @@
     max-height: 70vh;
     display: flex;
     flex-direction: column;
-    background-color: rgba(63, 52, 42, 0.95);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid var(--warm-border);
+    background-color: var(--warm-bg);
     border-radius: 12px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    box-shadow: none;
     z-index: 50;
     animation: llm-popup-fade-in 0.2s ease-out;
   }
@@ -499,7 +498,6 @@
     align-items: center;
     justify-content: space-between;
     padding: 0.75rem 1rem;
-    border-bottom: 1px solid var(--warm-border);
     flex-shrink: 0;
   }
 
@@ -666,7 +664,6 @@
 
   .llm-popup-footer {
     padding: 0.5rem 1rem;
-    border-top: 1px solid var(--warm-border);
     text-align: center;
     flex-shrink: 0;
   }

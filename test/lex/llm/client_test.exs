@@ -21,7 +21,7 @@ defmodule Lex.LLM.ClientTest do
     Application.put_env(:lex, :llm_base_url, "https://api.test.openai.com/v1")
     Application.put_env(:lex, :llm_model, "gpt-4o-mini")
     Application.put_env(:lex, :llm_timeout_ms, 5000)
-    Application.put_env(:lex, :llm_max_tokens, 100)
+    Application.put_env(:lex, :llm_max_tokens, 250)
 
     ClientMock.clear_mock()
 
