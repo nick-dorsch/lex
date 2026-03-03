@@ -10,6 +10,7 @@ defmodule LexWeb.LibraryLive.Index do
   alias Lex.Repo
   alias Lex.Library
   alias Lex.Library.{CalibreScanner, Document, ImportTracker, Language}
+  alias Lex.Vocab
   alias Lex.Text.Sentence
   alias Lex.Reader.UserSentenceState
   alias Phoenix.PubSub
@@ -45,6 +46,7 @@ defmodule LexWeb.LibraryLive.Index do
      socket
      |> assign(:items, items)
      |> assign(:user_id, user_id)
+     |> assign(:vocab_counts, load_vocab_counts(user_id))
      |> assign(:calibre_available, calibre_available?())
      |> assign(:refreshing, false)
      |> assign(:pending_import_file_path, nil)
@@ -237,6 +239,7 @@ defmodule LexWeb.LibraryLive.Index do
            socket
            |> assign(:user_id, updated_user.id)
            |> assign(:items, load_unified_library(updated_user.id))
+           |> assign(:vocab_counts, load_vocab_counts(updated_user.id))
            |> assign(:show_profile_setup_modal, false)
            |> put_flash(:info, "Profile setup complete")}
 
@@ -315,6 +318,9 @@ defmodule LexWeb.LibraryLive.Index do
 
   defp load_user(nil), do: nil
   defp load_user(user_id), do: Repo.get(User, user_id)
+
+  defp load_vocab_counts(nil), do: %{read: 0, learning: 0, known: 0}
+  defp load_vocab_counts(user_id), do: Vocab.get_status_counts(user_id)
 
   defp calibre_available? do
     path = Library.calibre_library_path()

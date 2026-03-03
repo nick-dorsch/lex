@@ -24,6 +24,7 @@
 }
 
 @layer components {
+
   /* Library Page Container */
   .library-container {
     @apply max-w-7xl mx-auto px-4 py-8 min-h-screen;
@@ -222,7 +223,7 @@
     border-bottom: 1px solid rgba(213, 194, 166, 0.14);
   }
 
-  .stats-books-panel > :last-child {
+  .stats-books-panel> :last-child {
     border-bottom: none;
   }
 
@@ -268,7 +269,7 @@
     @apply flex flex-col items-center justify-center py-20 text-center;
   }
 
-  .empty-state > p:first-child {
+  .empty-state>p:first-child {
     @apply text-xl font-medium mb-4;
     color: var(--warm-text-muted);
   }
@@ -324,7 +325,7 @@
     @apply relative rounded-xl overflow-hidden transition-all duration-200;
     background-color: transparent;
     border: none;
-    min-height: 540px;
+    min-height: 440;
   }
 
   .item-cover {
@@ -438,14 +439,17 @@
 
   .cover-confirm-overlay {
     position: absolute;
-    inset: auto 0.6rem 2.3rem 0.6rem;
-    border-radius: 0.5rem;
-    background-color: rgba(28, 20, 13, 0.82);
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(28, 20, 13, 0.78);
     color: #f7edd8;
-    padding: 0.35rem 0.5rem;
-    font-size: 0.8rem;
-    font-weight: 600;
+    font-size: 1.2rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
     text-align: center;
+    pointer-events: none;
   }
 
   /* Item Actions */
@@ -593,7 +597,7 @@
     font-weight: 700;
   }
 
-  .profile-setup-modal > p {
+  .profile-setup-modal>p {
     margin-top: 0.5rem;
     margin-bottom: 1rem;
     color: var(--warm-text-muted);
@@ -875,6 +879,7 @@
       opacity: 0;
       transform: translateY(-50%) translateX(10px);
     }
+
     to {
       opacity: 1;
       transform: translateY(-50%) translateX(0);
@@ -1079,6 +1084,7 @@
         opacity: 0;
         transform: translateY(10px);
       }
+
       to {
         opacity: 1;
         transform: translateY(0);
