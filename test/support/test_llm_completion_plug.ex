@@ -5,12 +5,24 @@ defmodule Lex.TestLLMCompletionPlug do
   plug(:dispatch)
 
   post "/chat/completions" do
+    conn =
+      conn
+      |> Plug.Conn.put_resp_content_type("text/event-stream")
+      |> Plug.Conn.send_chunked(200)
+
+    {:ok, conn} =
+      Plug.Conn.chunk(
+        conn,
+        ~s(data: {"choices":[{"delta":{"content":"hola"}}]}\n\n)
+      )
+
+    {:ok, conn} =
+      Plug.Conn.chunk(
+        conn,
+        ~s(data: {"choices":[],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}\n\ndata: [DONE]\n\n)
+      )
+
     conn
-    |> Plug.Conn.put_resp_content_type("application/json")
-    |> Plug.Conn.send_resp(
-      200,
-      ~s({"choices":[{"message":{"content":"hola"}}],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}})
-    )
   end
 
   match _ do

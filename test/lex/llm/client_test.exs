@@ -13,6 +13,7 @@ defmodule Lex.LLM.ClientTest do
       base_url: Application.get_env(:lex, :llm_base_url),
       model: Application.get_env(:lex, :llm_model),
       timeout: Application.get_env(:lex, :llm_timeout_ms),
+      max_tokens: Application.get_env(:lex, :llm_max_tokens),
       client: Application.get_env(:lex, :llm_client)
     }
 
@@ -20,6 +21,7 @@ defmodule Lex.LLM.ClientTest do
     Application.put_env(:lex, :llm_base_url, "https://api.test.openai.com/v1")
     Application.put_env(:lex, :llm_model, "gpt-4o-mini")
     Application.put_env(:lex, :llm_timeout_ms, 5000)
+    Application.put_env(:lex, :llm_max_tokens, 100)
 
     ClientMock.clear_mock()
 
@@ -28,6 +30,7 @@ defmodule Lex.LLM.ClientTest do
       Application.put_env(:lex, :llm_base_url, original_config.base_url)
       Application.put_env(:lex, :llm_model, original_config.model)
       Application.put_env(:lex, :llm_timeout_ms, original_config.timeout)
+      Application.put_env(:lex, :llm_max_tokens, original_config.max_tokens)
       Application.put_env(:lex, :llm_client, original_config.client)
 
       ClientMock.clear_mock()

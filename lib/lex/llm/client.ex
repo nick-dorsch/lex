@@ -91,17 +91,18 @@ defmodule Lex.LLM.Client do
     else
       model = get_config(:llm_model) || "gpt-4o-mini"
       timeout = get_config(:llm_timeout_ms) || 5000
+      max_tokens = get_config(:llm_max_tokens) || 100
 
       task =
         Task.async(fn ->
-          do_chat_completion(messages, callback, api_key, base_url, model, timeout)
+          do_chat_completion(messages, callback, api_key, base_url, model, timeout, max_tokens)
         end)
 
       {:ok, task}
     end
   end
 
-  defp do_chat_completion(messages, callback, api_key, base_url, model, timeout) do
+  defp do_chat_completion(messages, callback, api_key, base_url, model, timeout, max_tokens) do
     url = "#{base_url}/chat/completions"
 
     headers = [
@@ -113,12 +114,13 @@ defmodule Lex.LLM.Client do
       Jason.encode!(%{
         model: model,
         messages: messages,
-        stream: false
+        max_tokens: max_tokens,
+        stream: true,
+        stream_options: %{include_usage: true}
       })
 
-    case make_request(url, headers, body, timeout) do
-      {:ok, response_text, stats} ->
-        callback.({:chunk, response_text})
+    case make_request(url, headers, body, timeout, callback) do
+      {:ok, stats} ->
         callback.({:done, stats})
         :ok
 
@@ -127,15 +129,29 @@ defmodule Lex.LLM.Client do
     end
   end
 
-  defp make_request(url, headers, body, timeout) do
+  defp make_request(url, headers, body, timeout, callback) do
     uri = URI.parse(url)
 
     with {:ok, conn} <- connect(uri, timeout),
          {:ok, conn, request_ref} <-
            Mint.HTTP.request(conn, "POST", request_path(uri), headers, body),
-         {:ok, status, response_body, final_conn} <- receive_response(conn, request_ref, timeout) do
+         {:ok, status, response_body, stats, final_conn} <-
+           receive_response(conn, request_ref, timeout, callback) do
       Mint.HTTP.close(final_conn)
-      parse_response(status, response_body)
+
+      cond do
+        status in 200..299 and stats != nil ->
+          {:ok, stats}
+
+        status in 200..299 ->
+          with {:ok, response_text, fallback_stats} <- parse_response(status, response_body) do
+            callback.({:chunk, response_text})
+            {:ok, fallback_stats}
+          end
+
+        true ->
+          parse_response(status, response_body)
+      end
     else
       {:error, conn, reason} ->
         Mint.HTTP.close(conn)
@@ -169,47 +185,140 @@ defmodule Lex.LLM.Client do
     end
   end
 
-  defp receive_response(conn, request_ref, timeout) do
-    receive_response(conn, request_ref, timeout, nil, [], false)
+  defp receive_response(conn, request_ref, timeout, callback) do
+    receive_response(conn, request_ref, timeout, callback, nil, [], false, "", nil, [], false)
   end
 
-  defp receive_response(conn, request_ref, timeout, status, body_parts, done?) do
+  defp receive_response(
+         conn,
+         request_ref,
+         timeout,
+         callback,
+         status,
+         body_parts,
+         done?,
+         sse_buffer,
+         usage,
+         streamed_chunks,
+         stream_active?
+       ) do
     if done? do
-      {:ok, status, IO.iodata_to_binary(Enum.reverse(body_parts)), conn}
+      completion_text = IO.iodata_to_binary(Enum.reverse(streamed_chunks))
+
+      stats =
+        if stream_active? do
+          usage_stats_from_usage_or_text(usage, completion_text)
+        else
+          nil
+        end
+
+      {:ok, status, IO.iodata_to_binary(Enum.reverse(body_parts)), stats, conn}
     else
       receive do
         message ->
           case Mint.HTTP.stream(conn, message) do
             :unknown ->
-              receive_response(conn, request_ref, timeout, status, body_parts, done?)
+              receive_response(
+                conn,
+                request_ref,
+                timeout,
+                callback,
+                status,
+                body_parts,
+                done?,
+                sse_buffer,
+                usage,
+                streamed_chunks,
+                stream_active?
+              )
 
             {:ok, new_conn, responses} ->
-              {new_status, new_body_parts, new_done?} =
-                Enum.reduce(responses, {status, body_parts, done?}, fn response,
-                                                                       {acc_status, acc_body,
-                                                                        acc_done} ->
-                  case response do
-                    {:status, ^request_ref, code} ->
-                      {code, acc_body, acc_done}
+              {new_status, new_body_parts, new_done?, new_sse_buffer, new_usage,
+               new_streamed_chunks,
+               new_stream_active?} =
+                Enum.reduce(
+                  responses,
+                  {status, body_parts, done?, sse_buffer, usage, streamed_chunks, stream_active?},
+                  fn response,
+                     {acc_status, acc_body, acc_done, acc_buffer, acc_usage, acc_streamed_chunks,
+                      acc_stream_active?} ->
+                    case response do
+                      {:status, ^request_ref, code} ->
+                        {
+                          code,
+                          acc_body,
+                          acc_done,
+                          acc_buffer,
+                          acc_usage,
+                          acc_streamed_chunks,
+                          acc_stream_active?
+                        }
 
-                    {:data, ^request_ref, chunk} ->
-                      {acc_status, [chunk | acc_body], acc_done}
+                      {:data, ^request_ref, chunk} ->
+                        new_body = [chunk | acc_body]
 
-                    {:done, ^request_ref} ->
-                      {acc_status, acc_body, true}
+                        if acc_status in 200..299 do
+                          {buffer, maybe_usage, chunks, now_streaming?} =
+                            parse_sse_chunk(acc_buffer <> chunk, callback)
 
-                    _ ->
-                      {acc_status, acc_body, acc_done}
+                          {
+                            acc_status,
+                            new_body,
+                            acc_done,
+                            buffer,
+                            merge_usage(acc_usage, maybe_usage),
+                            Enum.reverse(chunks) ++ acc_streamed_chunks,
+                            acc_stream_active? or now_streaming?
+                          }
+                        else
+                          {
+                            acc_status,
+                            new_body,
+                            acc_done,
+                            acc_buffer,
+                            acc_usage,
+                            acc_streamed_chunks,
+                            acc_stream_active?
+                          }
+                        end
+
+                      {:done, ^request_ref} ->
+                        {
+                          acc_status,
+                          acc_body,
+                          true,
+                          acc_buffer,
+                          acc_usage,
+                          acc_streamed_chunks,
+                          acc_stream_active?
+                        }
+
+                      _ ->
+                        {
+                          acc_status,
+                          acc_body,
+                          acc_done,
+                          acc_buffer,
+                          acc_usage,
+                          acc_streamed_chunks,
+                          acc_stream_active?
+                        }
+                    end
                   end
-                end)
+                )
 
               receive_response(
                 new_conn,
                 request_ref,
                 timeout,
+                callback,
                 new_status,
                 new_body_parts,
-                new_done?
+                new_done?,
+                new_sse_buffer,
+                new_usage,
+                new_streamed_chunks,
+                new_stream_active?
               )
 
             {:error, error_conn, reason, _responses} ->
@@ -238,6 +347,91 @@ defmodule Lex.LLM.Client do
   end
 
   defp parse_response(status, _body), do: {:error, {:http_error, status, nil}}
+
+  defp parse_sse_chunk(payload, callback) do
+    case String.split(payload, "\n\n") do
+      [single] ->
+        {single, nil, [], false}
+
+      segments ->
+        rest = List.last(segments) || ""
+        complete_segments = Enum.drop(segments, -1)
+
+        Enum.reduce(complete_segments, {rest, nil, [], false}, fn segment,
+                                                                  {acc_rest, acc_usage,
+                                                                   acc_chunks,
+                                                                   acc_stream_active?} ->
+          {event_type, maybe_chunk, maybe_usage} = parse_sse_event(segment)
+
+          if is_binary(maybe_chunk) and maybe_chunk != "" do
+            callback.({:chunk, maybe_chunk})
+          end
+
+          {
+            acc_rest,
+            merge_usage(acc_usage, maybe_usage),
+            if(is_binary(maybe_chunk) and maybe_chunk != "",
+              do: [maybe_chunk | acc_chunks],
+              else: acc_chunks
+            ),
+            acc_stream_active? or event_type == :sse
+          }
+        end)
+    end
+  end
+
+  defp parse_sse_event(segment) do
+    data_lines =
+      segment
+      |> String.split("\n")
+      |> Enum.filter(&String.starts_with?(&1, "data:"))
+      |> Enum.map(fn line ->
+        line
+        |> String.replace_prefix("data:", "")
+        |> String.trim_leading()
+      end)
+
+    data = Enum.join(data_lines, "\n")
+
+    cond do
+      data == "" ->
+        {:none, nil, nil}
+
+      data == "[DONE]" ->
+        {:sse, nil, nil}
+
+      true ->
+        case Jason.decode(data) do
+          {:ok, response} ->
+            {extract_stream_delta(response), Map.get(response, "usage")}
+            |> then(fn {chunk, usage} -> {:sse, chunk, usage} end)
+
+          {:error, _} ->
+            {:none, nil, nil}
+        end
+    end
+  end
+
+  defp extract_stream_delta(%{"choices" => [%{"delta" => %{"content" => content}} | _]})
+       when is_binary(content),
+       do: content
+
+  defp extract_stream_delta(_), do: nil
+
+  defp merge_usage(nil, usage), do: usage
+  defp merge_usage(usage, nil), do: usage
+
+  defp merge_usage(old, new) do
+    Map.merge(old, new, fn _key, old_value, new_value ->
+      if is_nil(new_value), do: old_value, else: new_value
+    end)
+  end
+
+  defp usage_stats_from_usage_or_text(nil, content), do: usage_stats(%{}, content)
+
+  defp usage_stats_from_usage_or_text(usage, content) do
+    usage_stats(%{"usage" => usage}, content)
+  end
 
   defp extract_content(%{"choices" => [%{"message" => %{"content" => content}} | _]})
        when is_binary(content),

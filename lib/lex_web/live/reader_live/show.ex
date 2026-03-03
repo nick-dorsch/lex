@@ -607,6 +607,17 @@ defmodule LexWeb.ReaderLive.Show do
   defp llm_error_to_message(:user_not_found), do: "User not found."
   defp llm_error_to_message(:token_not_found), do: "Token not found."
   defp llm_error_to_message(:required_data_not_found), do: "Required data not found."
+  defp llm_error_to_message(:timeout), do: "LLM request timed out. Please try again."
+
+  defp llm_error_to_message({:network_error, :timeout}),
+    do: "LLM request timed out. Please try again."
+
+  defp llm_error_to_message({:http_error, 401, _}),
+    do: "LLM authentication failed. Please verify API credentials."
+
+  defp llm_error_to_message({:http_error, 429, _}),
+    do: "LLM rate limit reached. Please try again shortly."
+
   defp llm_error_to_message(_), do: "An error occurred while requesting help."
 
   # Handle LLM streaming chunks
