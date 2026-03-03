@@ -79,6 +79,18 @@ defmodule Lex.Library.ImportTracker do
   end
 
   @doc """
+  Broadcasts import progress updates for an in-flight import.
+
+  Emits `{:import_progress, file_path, percent, stage, user_id}` via PubSub.
+  This does not modify import status state.
+  """
+  @spec update_progress(String.t(), integer(), String.t(), integer()) :: :ok
+  def update_progress(file_path, percent, stage, user_id) do
+    broadcast(user_id, {:import_progress, file_path, percent, stage, user_id})
+    :ok
+  end
+
+  @doc """
   Gets the current status for a file.
   Returns `:not_started` if the file has not been tracked yet.
   """

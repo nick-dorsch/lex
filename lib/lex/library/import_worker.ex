@@ -59,8 +59,18 @@ defmodule Lex.Library.ImportWorker do
   end
 
   defp do_import(file_path, user_id, opts) do
-    case Library.import_epub(file_path, [{:user_id, user_id} | opts]) do
+    ImportTracker.update_progress(file_path, 0, "Queued import", user_id)
+
+    progress_callback = fn percent, stage ->
+      ImportTracker.update_progress(file_path, percent, stage, user_id)
+    end
+
+    case Library.import_epub(file_path, [
+           {:user_id, user_id},
+           {:progress_callback, progress_callback} | opts
+         ]) do
       {:ok, document} ->
+        ImportTracker.update_progress(file_path, 100, "Import complete", user_id)
         Logger.info("Successfully imported #{file_path} as document #{document.id}")
         ImportTracker.complete_import(file_path, document.id, user_id)
         :ok

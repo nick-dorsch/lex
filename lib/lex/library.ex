@@ -11,6 +11,8 @@ defmodule Lex.Library do
   alias Lex.Text.{Lexeme, NLP, Sentence, Token}
   require Logger
 
+  @type progress_callback :: (integer(), String.t() -> any())
+
   @doc """
   Returns the configured Calibre library path.
 
@@ -55,13 +57,17 @@ defmodule Lex.Library do
     user_id = Keyword.fetch!(opts, :user_id)
     source_file = Keyword.get(opts, :source_file, file_path)
     transaction_timeout = Keyword.get(opts, :transaction_timeout, :infinity)
+    progress_callback = Keyword.get(opts, :progress_callback)
+
+    report_progress(progress_callback, 0, "Parsing metadata")
 
     with :ok <- ensure_user_exists(user_id),
          {:ok, document} <-
            Repo.transaction(
              fn ->
                with {:ok, document} <- create_document(file_path, source_file, user_id),
-                    {:ok, _sections} <- process_chapters(document, file_path) do
+                    {:ok, _sections} <- process_chapters(document, file_path, progress_callback) do
+                 report_progress(progress_callback, 95, "Finalizing import")
                  finalize_document(document)
                else
                  {:error, reason} -> Repo.rollback(reason)
@@ -116,11 +122,20 @@ defmodule Lex.Library do
     end
   end
 
-  defp process_chapters(document, file_path) do
+  defp process_chapters(document, file_path, progress_callback) do
     case EPUB.list_chapters(file_path) do
       {:ok, chapters} ->
+        total_chapters = length(chapters)
+
+        report_progress(progress_callback, 10, "Processing chapters")
+
         results =
-          Enum.map(chapters, fn chapter ->
+          Enum.with_index(chapters, 1)
+          |> Enum.map(fn {chapter, idx} ->
+            stage = "Processing chapter #{idx} of #{total_chapters}"
+            percent = chapter_progress_percent(idx, total_chapters)
+
+            report_progress(progress_callback, percent, stage)
             process_chapter(document, file_path, chapter)
           end)
 
@@ -142,6 +157,12 @@ defmodule Lex.Library do
       {:error, reason} ->
         {:error, {:epub_parse_failed, reason}}
     end
+  end
+
+  defp chapter_progress_percent(_idx, 0), do: 90
+
+  defp chapter_progress_percent(idx, total_chapters) do
+    10 + round(idx / total_chapters * 80)
   end
 
   defp process_chapter(document, file_path, chapter) do
@@ -333,6 +354,13 @@ defmodule Lex.Library do
 
   defp fallback(nil, value), do: value
   defp fallback(value, _fallback), do: value
+
+  defp report_progress(nil, _percent, _stage), do: :ok
+
+  defp report_progress(callback, percent, stage) when is_function(callback, 2) do
+    callback.(percent, stage)
+    :ok
+  end
 
   defp find_or_create_lexeme(language, normalized_lemma, lemma, pos) do
     lexeme_key = [language: language, normalized_lemma: normalized_lemma, pos: pos]

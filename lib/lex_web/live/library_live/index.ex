@@ -26,7 +26,9 @@ defmodule LexWeb.LibraryLive.Index do
           import_status: :not_imported | :importing | :imported | :error,
           document_id: integer() | nil,
           error: String.t() | nil,
-          progress: integer() | nil
+          progress: integer() | nil,
+          import_percent: integer() | nil,
+          import_stage: String.t() | nil
         }
 
   @impl true
@@ -52,7 +54,33 @@ defmodule LexWeb.LibraryLive.Index do
     items =
       Enum.map(socket.assigns.items, fn item ->
         if to_string(item.id) == file_path do
-          %{item | import_status: :importing, error: nil}
+          %{
+            item
+            | import_status: :importing,
+              error: nil,
+              import_percent: 0,
+              import_stage: "Queued import"
+          }
+        else
+          item
+        end
+      end)
+
+    {:noreply, assign(socket, :items, items)}
+  end
+
+  @impl true
+  def handle_info({:import_progress, file_path, percent, stage, _user_id}, socket) do
+    items =
+      Enum.map(socket.assigns.items, fn item ->
+        if to_string(item.id) == file_path do
+          %{
+            item
+            | import_status: :importing,
+              error: nil,
+              import_percent: percent,
+              import_stage: stage
+          }
         else
           item
         end
@@ -79,6 +107,8 @@ defmodule LexWeb.LibraryLive.Index do
             | import_status: :imported,
               document_id: document_id,
               error: nil,
+              import_percent: nil,
+              import_stage: nil,
               title: if(document, do: document.title, else: item.title),
               author: if(document, do: document.author || "Unknown", else: item.author)
           }
@@ -100,7 +130,7 @@ defmodule LexWeb.LibraryLive.Index do
     items =
       Enum.map(socket.assigns.items, fn item ->
         if to_string(item.id) == file_path do
-          %{item | import_status: :error, error: reason}
+          %{item | import_status: :error, error: reason, import_percent: nil, import_stage: nil}
         else
           item
         end
@@ -128,7 +158,13 @@ defmodule LexWeb.LibraryLive.Index do
         items =
           Enum.map(socket.assigns.items, fn item ->
             if item.id == file_path do
-              %{item | import_status: :importing, error: nil}
+              %{
+                item
+                | import_status: :importing,
+                  error: nil,
+                  import_percent: 0,
+                  import_stage: "Queued import"
+              }
             else
               item
             end
@@ -240,7 +276,9 @@ defmodule LexWeb.LibraryLive.Index do
       import_status: book.import_status,
       document_id: book.document_id,
       error: nil,
-      progress: nil
+      progress: nil,
+      import_percent: nil,
+      import_stage: nil
     }
   end
 
@@ -257,7 +295,9 @@ defmodule LexWeb.LibraryLive.Index do
       import_status: :imported,
       document_id: document.id,
       error: nil,
-      progress: progress
+      progress: progress,
+      import_percent: nil,
+      import_stage: nil
     }
   end
 

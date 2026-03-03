@@ -867,6 +867,12 @@ defmodule Lex.LibraryTest do
         # Should receive started event
         assert_receive {:import_started, ^file_path, ^user_id}, 1000
 
+        # Should receive at least one progress event
+        assert_receive {:import_progress, ^file_path, percent, stage, ^user_id}, 2000
+        assert is_integer(percent)
+        assert percent >= 0 and percent <= 100
+        assert is_binary(stage)
+
         # Should receive completed event
         assert_receive {:import_completed, ^file_path, document_id, ^user_id}, 2000
         assert is_integer(document_id)

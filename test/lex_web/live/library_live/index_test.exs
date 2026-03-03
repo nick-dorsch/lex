@@ -134,17 +134,14 @@ defmodule LexWeb.LibraryLive.IndexTest do
       assert html =~ "phx-click=\"navigate_to_reader\""
     end
 
-    test "shows calibre source badge for Calibre items", %{conn: conn} do
-      # This test verifies the template structure supports Calibre items
+    test "shows imported badge for imported items", %{conn: conn} do
       user = create_user()
       _document = create_ready_document(user)
 
       {:ok, _view, html} = live(conn, "/library")
 
-      # Database items don't show source badge
-      refute html =~ "source-badge"
-
-      # But the structure exists for Calibre items
+      assert html =~ "source-badge imported"
+      assert html =~ "Imported"
       assert html =~ "library-item database"
     end
 
@@ -204,6 +201,31 @@ defmodule LexWeb.LibraryLive.IndexTest do
       # The page should handle the message without crashing
       html = render(view)
       assert html =~ "My Library"
+    end
+
+    test "shows chapter-based import progress details", %{conn: conn} do
+      temp_root = "/tmp/lex_library_live_#{System.unique_integer([:positive])}"
+      temp_book_dir = Path.join(temp_root, "Author/Book")
+      file_path = Path.join(temp_book_dir, "book.epub")
+
+      File.mkdir_p!(temp_book_dir)
+      File.cp!("test/fixtures/epubs/el_principito.epub", file_path)
+
+      original_path = Application.fetch_env!(:lex, :calibre_library_path)
+      Application.put_env(:lex, :calibre_library_path, temp_root)
+
+      try do
+        {:ok, view, _html} = live(conn, "/library")
+
+        send(view.pid, {:import_progress, file_path, 42, "Processing chapter 2 of 5", 1})
+
+        html = render(view)
+        assert html =~ "Processing chapter 2 of 5"
+        assert html =~ "42%"
+      after
+        Application.put_env(:lex, :calibre_library_path, original_path)
+        File.rm_rf(temp_root)
+      end
     end
   end
 

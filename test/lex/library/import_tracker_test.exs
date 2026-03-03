@@ -156,6 +156,20 @@ defmodule Lex.Library.ImportTrackerTest do
       assert_receive {:import_failed, ^file_path, ^reason, ^user_id}, 1000
     end
 
+    test "broadcasts import_progress event" do
+      file_path = unique_file_path()
+      user_id = 42
+      topic = ImportTracker.topic(user_id)
+
+      PubSub.subscribe(Lex.PubSub, topic)
+
+      assert :ok =
+               ImportTracker.update_progress(file_path, 35, "Processing chapter 2 of 6", user_id)
+
+      assert_receive {:import_progress, ^file_path, 35, "Processing chapter 2 of 6", ^user_id},
+                     1000
+    end
+
     test "broadcasts are scoped to user_id" do
       file_path = unique_file_path()
       user_id_1 = System.unique_integer([:positive])

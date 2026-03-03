@@ -40,13 +40,17 @@
           <% end %>
 
           <div class="item-content">
+            <%= if item.import_status == :imported and item.progress != nil do %>
+              <span class="completion-badge"><%= item.progress %>%</span>
+            <% end %>
+
             <h3 class="item-title"><%= item.title %></h3>
             <%= if item.author do %>
               <p class="item-author">by <%= item.author %></p>
             <% end %>
             
-            <%= if item.source == :calibre do %>
-              <span class="source-badge calibre">Calibre</span>
+            <%= if item.import_status == :imported do %>
+              <span class="source-badge imported">Imported</span>
             <% end %>
           </div>
           
@@ -63,21 +67,18 @@
               
               <% :importing -> %>
                 <div class="importing-indicator">
-                  <span class="spinner"></span>
-                  <span class="status-text">Importing...</span>
+                  <div class="importing-header">
+                    <span class="spinner"></span>
+                    <span class="status-text"><%= item.import_stage || "Importing..." %></span>
+                    <span class="import-percent"><%= item.import_percent || 0 %>%</span>
+                  </div>
+                  <div class="import-progress-bar">
+                    <div class="import-progress-fill" style={"width: #{item.import_percent || 0}%"}></div>
+                  </div>
                 </div>
               
               <% :imported -> %>
                 <div class="imported-badge">
-                  <span class="badge-text">Imported</span>
-                  <%= if item.progress != nil do %>
-                    <div class="progress-container">
-                      <div class="progress-bar">
-                        <div class="progress-fill" style={"width: #{item.progress}%"}></div>
-                      </div>
-                      <span class="progress-text"><%= item.progress %>%</span>
-                    </div>
-                  <% end %>
                   <button 
                     class="read-btn" 
                     phx-click="navigate_to_reader" 
