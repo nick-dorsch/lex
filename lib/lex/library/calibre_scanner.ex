@@ -10,7 +10,7 @@ defmodule Lex.Library.CalibreScanner do
   """
 
   alias Lex.Library
-  alias Lex.Library.{Document, EPUB}
+  alias Lex.Library.{Document, EPUB, Language}
   alias Lex.Repo
 
   import Ecto.Query
@@ -66,6 +66,56 @@ defmodule Lex.Library.CalibreScanner do
 
       true ->
         do_scan(calibre_path)
+    end
+  end
+
+  @doc """
+  Filters importable Calibre books by target languages.
+
+  Rules:
+  - Imported books are always included (not part of importable list filtering)
+  - Unknown-language books are always included for UI flagging
+  - Importable books are included when language matches at least one target language
+  - When no target languages are configured, only unknown-language importable books are included
+  """
+  @spec filter_importable_by_target_languages([t()], [String.t()]) :: [t()]
+  def filter_importable_by_target_languages(books, target_languages) do
+    normalized_targets =
+      target_languages
+      |> Enum.map(&Language.from_user_target/1)
+      |> Enum.reject(&(&1 == Language.unknown()))
+      |> MapSet.new()
+
+    Enum.filter(books, fn book ->
+      if book.import_status == :imported do
+        true
+      else
+        include_importable_book?(book.language, normalized_targets)
+      end
+    end)
+  end
+
+  @doc """
+  Returns true when a Calibre book language is unknown.
+  """
+  @spec unknown_language?(t()) :: boolean()
+  def unknown_language?(book) do
+    Language.from_epub(book.language) == Language.unknown()
+  end
+
+  defp include_importable_book?(language, normalized_targets) do
+    normalized_language = Language.from_epub(language)
+
+    cond do
+      normalized_language == Language.unknown() ->
+        true
+
+      MapSet.size(normalized_targets) == 0 ->
+        false
+
+      true ->
+        language_base = Language.base_language(normalized_language)
+        MapSet.member?(normalized_targets, language_base)
     end
   end
 

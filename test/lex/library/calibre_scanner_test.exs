@@ -325,4 +325,71 @@ defmodule Lex.Library.CalibreScannerTest do
       assert {:ok, [_book]} = CalibreScanner.scan()
     end
   end
+
+  describe "filter_importable_by_target_languages/2" do
+    test "includes books matching any configured target language" do
+      books = [
+        calibre_book("es", :not_imported),
+        calibre_book("fr", :not_imported),
+        calibre_book("de", :not_imported)
+      ]
+
+      filtered = CalibreScanner.filter_importable_by_target_languages(books, ["es", "fr"])
+
+      assert Enum.map(filtered, & &1.language) == ["es", "fr"]
+    end
+
+    test "matches regional language tags to base target language" do
+      books = [calibre_book("es-ES", :not_imported), calibre_book("en-US", :not_imported)]
+
+      filtered = CalibreScanner.filter_importable_by_target_languages(books, ["es"])
+
+      assert Enum.map(filtered, & &1.language) == ["es-ES"]
+    end
+
+    test "excludes non-target importable languages" do
+      books = [calibre_book("it", :not_imported), calibre_book("pt", :not_imported)]
+
+      filtered = CalibreScanner.filter_importable_by_target_languages(books, ["es"])
+
+      assert filtered == []
+    end
+
+    test "always includes unknown-language importable books" do
+      books = [
+        calibre_book("unknown", :not_imported),
+        calibre_book(nil, :not_imported),
+        calibre_book("de", :not_imported)
+      ]
+
+      filtered = CalibreScanner.filter_importable_by_target_languages(books, ["es"])
+
+      assert Enum.map(filtered, & &1.language) == ["unknown", nil]
+      assert Enum.all?(filtered, &CalibreScanner.unknown_language?/1)
+    end
+
+    test "with zero configured targets includes only unknown importable books" do
+      books = [
+        calibre_book("es", :not_imported),
+        calibre_book("unknown", :not_imported),
+        calibre_book("fr", :not_imported)
+      ]
+
+      filtered = CalibreScanner.filter_importable_by_target_languages(books, [])
+
+      assert Enum.map(filtered, & &1.language) == ["unknown"]
+    end
+  end
+
+  defp calibre_book(language, import_status) do
+    %CalibreScanner{
+      file_path: "/tmp/#{System.unique_integer([:positive])}.epub",
+      cover_path: nil,
+      title: "Test",
+      author: "Author",
+      language: language,
+      import_status: import_status,
+      document_id: nil
+    }
+  end
 end
