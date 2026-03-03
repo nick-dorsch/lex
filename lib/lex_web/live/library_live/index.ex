@@ -47,6 +47,7 @@ defmodule LexWeb.LibraryLive.Index do
      |> assign(:user_id, user_id)
      |> assign(:calibre_available, calibre_available?())
      |> assign(:refreshing, false)
+     |> assign(:pending_import_file_path, nil)
      |> assign_profile_setup_state(user_id)}
   end
 
@@ -67,7 +68,10 @@ defmodule LexWeb.LibraryLive.Index do
         end
       end)
 
-    {:noreply, assign(socket, :items, items)}
+    {:noreply,
+     socket
+     |> assign(:items, items)
+     |> maybe_clear_pending_import(file_path)}
   end
 
   @impl true
@@ -93,6 +97,15 @@ defmodule LexWeb.LibraryLive.Index do
   @impl true
   def handle_info(:clear_refresh_debounce, socket) do
     {:noreply, assign(socket, :refreshing, false)}
+  end
+
+  @impl true
+  def handle_info({:clear_import_confirmation, file_path}, socket) do
+    if socket.assigns.pending_import_file_path == file_path do
+      {:noreply, assign(socket, :pending_import_file_path, nil)}
+    else
+      {:noreply, socket}
+    end
   end
 
   @impl true
@@ -123,6 +136,7 @@ defmodule LexWeb.LibraryLive.Index do
     {:noreply,
      socket
      |> assign(:items, items)
+     |> maybe_clear_pending_import(file_path)
      |> put_flash(:info, "'#{title}' imported successfully")}
   end
 
@@ -140,6 +154,7 @@ defmodule LexWeb.LibraryLive.Index do
     {:noreply,
      socket
      |> assign(:items, items)
+     |> maybe_clear_pending_import(file_path)
      |> put_flash(:error, "Import failed: #{reason}")}
   end
 
@@ -149,39 +164,23 @@ defmodule LexWeb.LibraryLive.Index do
   end
 
   @impl true
-  def handle_event("import_epub", %{"file_path" => file_path}, socket) do
-    user_id = socket.assigns.user_id
+  def handle_event("confirm_import_epub", %{"file_path" => file_path}, socket) do
+    file_path = to_string(file_path)
 
-    # Start the import in the background
-    case Library.import_epub_async(file_path, user_id) do
-      {:ok, :started} ->
-        # Update the local state immediately for UI feedback
-        items =
-          Enum.map(socket.assigns.items, fn item ->
-            if item.id == file_path do
-              %{
-                item
-                | import_status: :importing,
-                  error: nil,
-                  import_percent: 0,
-                  import_stage: "Queued import"
-              }
-            else
-              item
-            end
-          end)
+    if socket.assigns.pending_import_file_path == file_path do
+      socket
+      |> assign(:pending_import_file_path, nil)
+      |> start_import(file_path)
+    else
+      Process.send_after(self(), {:clear_import_confirmation, file_path}, 3500)
 
-        {:noreply,
-         socket
-         |> assign(:items, items)
-         |> put_flash(:info, "Import started...")}
-
-      {:ok, :already_importing} ->
-        {:noreply, put_flash(socket, :warning, "Import already in progress")}
-
-      {:ok, :already_imported} ->
-        {:noreply, put_flash(socket, :info, "Book already imported")}
+      {:noreply, assign(socket, :pending_import_file_path, file_path)}
     end
+  end
+
+  @impl true
+  def handle_event("import_epub", %{"file_path" => file_path}, socket) do
+    start_import(socket, to_string(file_path))
   end
 
   @impl true
@@ -252,6 +251,42 @@ defmodule LexWeb.LibraryLive.Index do
        socket
        |> assign(:profile_params, params)
        |> assign(:profile_changeset, changeset)}
+    end
+  end
+
+  defp start_import(socket, file_path) do
+    user_id = socket.assigns.user_id
+
+    # Start the import in the background
+    case Library.import_epub_async(file_path, user_id) do
+      {:ok, :started} ->
+        # Update the local state immediately for UI feedback
+        items =
+          Enum.map(socket.assigns.items, fn item ->
+            if item.id == file_path do
+              %{
+                item
+                | import_status: :importing,
+                  error: nil,
+                  import_percent: 0,
+                  import_stage: "Queued import"
+              }
+            else
+              item
+            end
+          end)
+
+        {:noreply,
+         socket
+         |> assign(:items, items)
+         |> assign(:pending_import_file_path, nil)
+         |> put_flash(:info, "Import started...")}
+
+      {:ok, :already_importing} ->
+        {:noreply, put_flash(socket, :warning, "Import already in progress")}
+
+      {:ok, :already_imported} ->
+        {:noreply, put_flash(socket, :info, "Book already imported")}
     end
   end
 
@@ -603,6 +638,14 @@ defmodule LexWeb.LibraryLive.Index do
     end
   end
 
+  defp maybe_clear_pending_import(socket, file_path) do
+    if socket.assigns.pending_import_file_path == file_path do
+      assign(socket, :pending_import_file_path, nil)
+    else
+      socket
+    end
+  end
+
   defp cover_token(nil), do: nil
 
   defp cover_token(cover_path) do
@@ -632,4 +675,23 @@ defmodule LexWeb.LibraryLive.Index do
       "language-badge known"
     end
   end
+
+  defp items_by_author(items) do
+    items
+    |> Enum.group_by(&author_group_name/1)
+    |> Enum.sort_by(fn {author, _items} -> String.downcase(author) end)
+    |> Enum.map(fn {author, author_items} ->
+      {author, Enum.sort_by(author_items, &String.downcase(&1.title || ""))}
+    end)
+  end
+
+  defp author_group_name(%{author: author}) when is_binary(author) do
+    if String.trim(author) == "" do
+      "Unknown Author"
+    else
+      author
+    end
+  end
+
+  defp author_group_name(_item), do: "Unknown Author"
 end

@@ -19,12 +19,6 @@
     </div>
   </div>
 
-  <%= if @calibre_available do %>
-    <div class="calibre-notice">
-      <span class="notice-text">Calibre library connected</span>
-    </div>
-  <% end %>
-
   <%= if Enum.empty?(@items) do %>
     <div class="empty-state">
       <p>No documents found.</p>
@@ -35,89 +29,143 @@
       <% end %>
     </div>
   <% else %>
-    <div class="library-grid">
-      <%= for item <- @items do %>
-        <div class={"library-item #{item.source} #{item.import_status}"}>
-          <%= if item.cover_token do %>
-            <div class="item-cover">
-              <img src={~p"/calibre/covers/#{item.cover_token}"} alt={"Cover for #{item.title}"} loading="lazy" />
+    <%= for {author, author_items} <- items_by_author(@items) do %>
+      <section class="library-author-section">
+        <div class="library-author-header">
+          <h2 class="library-author-name"><%= author %></h2>
+          <div class="library-author-divider" aria-hidden="true"></div>
+        </div>
 
-              <%= if show_language_badge?(item) do %>
-                <span class={"#{language_badge_class(item.language)} language-badge-on-cover"}>
-                  <%= language_badge_label(item.language) %>
-                </span>
+        <div class="library-grid">
+          <%= for item <- author_items do %>
+            <div class={"library-item #{item.source} #{item.import_status}"}>
+              <%= case item.import_status do %>
+                <% :imported -> %>
+                  <button
+                    :if={item.document_id}
+                    type="button"
+                    class="item-cover item-cover-action"
+                    phx-click="navigate_to_reader"
+                    phx-value-document_id={item.document_id}
+                    aria-label={"Read #{item.title}"}
+                  >
+                    <%= if item.cover_token do %>
+                      <img src={~p"/calibre/covers/#{item.cover_token}"} alt={"Cover for #{item.title}"} loading="lazy" />
+                    <% else %>
+                      <div class="item-cover-placeholder">Read</div>
+                    <% end %>
+                  </button>
+
+                <% :not_imported -> %>
+                  <button
+                    type="button"
+                    class="item-cover item-cover-action"
+                    phx-click="confirm_import_epub"
+                    phx-value-file_path={item.id}
+                    aria-label={"Import #{item.title}"}
+                  >
+                    <%= if item.cover_token do %>
+                      <img src={~p"/calibre/covers/#{item.cover_token}"} alt={"Cover for #{item.title}"} loading="lazy" />
+                    <% else %>
+                      <div class="item-cover-placeholder">Import</div>
+                    <% end %>
+
+                    <%= if @pending_import_file_path == to_string(item.id) do %>
+                      <span class="cover-confirm-overlay">Click again to import</span>
+                    <% end %>
+
+                    <%= if show_language_badge?(item) do %>
+                      <span class={"#{language_badge_class(item.language)} language-badge-on-cover"}>
+                        <%= language_badge_label(item.language) %>
+                      </span>
+                    <% end %>
+                  </button>
+
+                <% :error -> %>
+                  <button
+                    type="button"
+                    class="item-cover item-cover-action"
+                    phx-click="confirm_import_epub"
+                    phx-value-file_path={item.id}
+                    aria-label={"Retry import for #{item.title}"}
+                  >
+                    <%= if item.cover_token do %>
+                      <img src={~p"/calibre/covers/#{item.cover_token}"} alt={"Cover for #{item.title}"} loading="lazy" />
+                    <% else %>
+                      <div class="item-cover-placeholder">Retry Import</div>
+                    <% end %>
+
+                    <%= if @pending_import_file_path == to_string(item.id) do %>
+                      <span class="cover-confirm-overlay">Click again to import</span>
+                    <% end %>
+
+                    <%= if show_language_badge?(item) do %>
+                      <span class={"#{language_badge_class(item.language)} language-badge-on-cover"}>
+                        <%= language_badge_label(item.language) %>
+                      </span>
+                    <% end %>
+                  </button>
+
+                <% :importing -> %>
+                  <div class="item-cover">
+                    <%= if item.cover_token do %>
+                      <img src={~p"/calibre/covers/#{item.cover_token}"} alt={"Cover for #{item.title}"} loading="lazy" />
+                    <% else %>
+                      <div class="item-cover-placeholder">Importing...</div>
+                    <% end %>
+
+                    <%= if show_language_badge?(item) do %>
+                      <span class={"#{language_badge_class(item.language)} language-badge-on-cover"}>
+                        <%= language_badge_label(item.language) %>
+                      </span>
+                    <% end %>
+                  </div>
+              <% end %>
+
+              <div class="item-content">
+                <%= if item.import_status == :imported and item.progress != nil do %>
+                  <span class="completion-badge"><%= item.progress %>%</span>
+                <% end %>
+
+                <h3 class="item-title"><%= item.title %></h3>
+                <%= if item.author do %>
+                  <p class="item-author">by <%= item.author %></p>
+                <% end %>
+
+                <%= if item.import_status == :imported do %>
+                  <span class="source-badge imported imported-badge">Imported</span>
+                <% end %>
+              </div>
+
+              <%= case item.import_status do %>
+                <% :importing -> %>
+                  <div class="importing-indicator mt-3">
+                    <div class="importing-header">
+                      <span class="spinner"></span>
+                      <span class="status-text"><%= item.import_stage || "Importing..." %></span>
+                      <span class="import-percent"><%= item.import_percent || 0 %>%</span>
+                    </div>
+                    <div class="import-progress-bar">
+                      <div class="import-progress-fill" style={"width: #{item.import_percent || 0}%"}></div>
+                    </div>
+                  </div>
+
+                <% :error -> %>
+                  <div class="error-state mt-3">
+                    <span class="error-badge">Error</span>
+                    <%= if item.error do %>
+                      <p class="error-message"><%= item.error %></p>
+                    <% end %>
+                    <p class="error-message">Click the cover twice to retry import.</p>
+                  </div>
+
+                <% _ -> %>
               <% end %>
             </div>
           <% end %>
-
-          <div class="item-content">
-            <%= if item.import_status == :imported and item.progress != nil do %>
-              <span class="completion-badge"><%= item.progress %>%</span>
-            <% end %>
-
-            <h3 class="item-title"><%= item.title %></h3>
-            <%= if item.author do %>
-              <p class="item-author">by <%= item.author %></p>
-            <% end %>
-
-            <%= if item.import_status == :imported do %>
-              <span class="source-badge imported">Imported</span>
-            <% end %>
-          </div>
-          
-          <div class="item-actions">
-            <%= case item.import_status do %>
-              <% :not_imported -> %>
-                <button 
-                  class="import-btn" 
-                  phx-click="import_epub" 
-                  phx-value-file_path={item.id}
-                >
-                  Import
-                </button>
-              
-              <% :importing -> %>
-                <div class="importing-indicator">
-                  <div class="importing-header">
-                    <span class="spinner"></span>
-                    <span class="status-text"><%= item.import_stage || "Importing..." %></span>
-                    <span class="import-percent"><%= item.import_percent || 0 %>%</span>
-                  </div>
-                  <div class="import-progress-bar">
-                    <div class="import-progress-fill" style={"width: #{item.import_percent || 0}%"}></div>
-                  </div>
-                </div>
-              
-              <% :imported -> %>
-                <div class="imported-badge">
-                  <button 
-                    class="read-btn" 
-                    phx-click="navigate_to_reader" 
-                    phx-value-document_id={item.document_id}
-                  >
-                    Read
-                  </button>
-                </div>
-              
-              <% :error -> %>
-                <div class="error-state">
-                  <span class="error-badge">Error</span>
-                  <%= if item.error do %>
-                    <p class="error-message"><%= item.error %></p>
-                  <% end %>
-                  <button 
-                    class="import-btn retry" 
-                    phx-click="import_epub" 
-                    phx-value-file_path={item.id}
-                  >
-                    Retry
-                  </button>
-                </div>
-            <% end %>
-          </div>
         </div>
+      </section>
       <% end %>
-    </div>
   <% end %>
 </div>
 

@@ -303,16 +303,13 @@ defmodule LexWeb.LibraryLive.IndexTest do
   end
 
   describe "refresh_calibre event" do
-    test "refresh button triggers reload and shows flash", %{conn: conn} do
+    test "refresh button triggers reload", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/library")
 
       # Click refresh button
       html = view |> element("button", "Refresh Library") |> render_click()
 
       assert html =~ "My Library"
-      # Flash messages appear in the rendered HTML when there's a flash
-      # Since Calibre path is not available in tests, count will be 0
-      assert html =~ "Found 0 books in Calibre library"
     end
 
     test "refresh button is debounced", %{conn: conn} do
@@ -457,6 +454,23 @@ defmodule LexWeb.LibraryLive.IndexTest do
       assert html =~ "Mango Book"
     end
 
+    test "groups items under author headers", %{conn: conn} do
+      user = create_user()
+
+      create_document_with_title_and_author(user, "Zeta", "Author B")
+      create_document_with_title_and_author(user, "Alpha", "Author A")
+      create_document_with_title_and_author(user, "Beta", "Author A")
+
+      {:ok, view, _html} = live(conn, "/library")
+
+      assert has_element?(view, ".library-author-name", "Author A")
+      assert has_element?(view, ".library-author-name", "Author B")
+
+      assert has_element?(view, ".library-author-section", "Alpha")
+      assert has_element?(view, ".library-author-section", "Beta")
+      assert has_element?(view, ".library-author-section", "Zeta")
+    end
+
     test "shows known and unknown language badges for importable Calibre books", %{conn: conn} do
       temp_root = "/tmp/lex_library_live_languages_#{System.unique_integer([:positive])}"
       known_book_dir = Path.join(temp_root, "Known Author/Known Book")
@@ -512,10 +526,14 @@ defmodule LexWeb.LibraryLive.IndexTest do
   end
 
   defp create_document_with_title(user, title) do
+    create_document_with_title_and_author(user, title, "Test Author")
+  end
+
+  defp create_document_with_title_and_author(user, title, author) do
     %Document{}
     |> Document.changeset(%{
       title: title,
-      author: "Test Author",
+      author: author,
       language: "en",
       status: "ready",
       source_file: "test.epub",

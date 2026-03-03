@@ -280,8 +280,31 @@
 
   /* Library Grid */
   .library-grid {
-    @apply grid gap-6;
+    @apply grid gap-4;
     grid-template-columns: 1fr;
+  }
+
+  .library-author-section {
+    @apply mt-8;
+  }
+
+  .library-author-section:first-of-type {
+    @apply mt-2;
+  }
+
+  .library-author-header {
+    @apply flex items-center gap-4 mb-5;
+  }
+
+  .library-author-name {
+    @apply text-lg font-semibold;
+    color: var(--warm-text);
+    white-space: nowrap;
+  }
+
+  .library-author-divider {
+    @apply h-px flex-1;
+    background-color: rgba(123, 97, 73, 0.5);
   }
 
   @media (min-width: 640px) {
@@ -292,7 +315,7 @@
 
   @media (min-width: 1024px) {
     .library-grid {
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, minmax(0, 1fr));
     }
   }
 
@@ -301,7 +324,7 @@
     @apply relative rounded-xl overflow-hidden transition-all duration-200;
     background-color: transparent;
     border: none;
-    min-height: 520px;
+    min-height: 540px;
   }
 
   .item-cover {
@@ -310,9 +333,41 @@
     position: relative;
   }
 
+  .item-cover-action {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .item-cover-action:focus-visible {
+    outline: 2px solid var(--warm-gold);
+    outline-offset: 2px;
+  }
+
+  .item-cover-action:hover img {
+    filter: brightness(1.05);
+  }
+
   .item-cover img {
     @apply w-full block;
     height: auto;
+  }
+
+  .item-cover-placeholder {
+    aspect-ratio: 3 / 4;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--warm-text-muted);
+    background: linear-gradient(160deg, #3d332b, #2d251f);
   }
 
   .library-item:hover {
@@ -334,7 +389,7 @@
 
   /* Item Content */
   .item-content {
-    @apply p-5 pt-12 pb-16;
+    @apply p-4 pt-10 pb-24;
   }
 
   .completion-badge {
@@ -345,7 +400,7 @@
   }
 
   .item-title {
-    @apply text-lg font-semibold mb-2 leading-tight;
+    @apply text-base font-semibold mb-2 leading-tight;
     color: var(--warm-text);
   }
 
@@ -379,6 +434,18 @@
     margin-top: 0;
     backdrop-filter: blur(2px);
     background-clip: padding-box;
+  }
+
+  .cover-confirm-overlay {
+    position: absolute;
+    inset: auto 0.6rem 2.3rem 0.6rem;
+    border-radius: 0.5rem;
+    background-color: rgba(28, 20, 13, 0.82);
+    color: #f7edd8;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-align: center;
   }
 
   /* Item Actions */
@@ -496,7 +563,7 @@
   }
 
   .library-item.imported {
-    border: 1px solid rgba(34, 197, 94, 0.3);
+    border: none;
   }
 
   .profile-setup-overlay {
