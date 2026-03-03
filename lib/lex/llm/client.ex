@@ -190,16 +190,59 @@ defmodule Lex.LLM.Client do
     {:error, reason}
   end
 
-  defp with_owned_connection(owner, connect_fun, request_fun, retries_left, transport_path) do
-    with {:ok, conn} <- SessionConnectionOwner.get_or_connect(owner, connect_fun) do
-      handle_owned_request_result(
-        owner,
-        connect_fun,
-        request_fun,
-        conn,
-        retries_left,
-        transport_path
-      )
+  defp with_owned_connection(
+         owner,
+         connect_fun,
+         request_fun,
+         retries_left,
+         transport_path,
+         acquire_retry_performed \\ false
+       ) do
+    case SessionConnectionOwner.get_or_connect(owner, connect_fun) do
+      {:ok, conn} ->
+        handle_owned_request_result(
+          owner,
+          connect_fun,
+          request_fun,
+          conn,
+          retries_left,
+          transport_path,
+          acquire_retry_performed
+        )
+
+      {:error, reason} ->
+        should_retry =
+          retries_left > 0 and recoverable_transport_error?(reason) and
+            not acquire_retry_performed
+
+        if should_retry do
+          Logger.info(
+            "LLM reconnect attempt after transport failure: reason=#{inspect(reason)} retries_left=#{retries_left}"
+          )
+
+          :ok = SessionConnectionOwner.mark_unhealthy(owner, reason)
+
+          case SessionConnectionOwner.reconnect(owner, connect_fun) do
+            {:ok, _conn} ->
+              Logger.info("LLM reconnect succeeded")
+
+              with_owned_connection(
+                owner,
+                connect_fun,
+                request_fun,
+                retries_left,
+                :reconnected_after_retry,
+                true
+              )
+
+            {:error, reconnect_reason} ->
+              Logger.info("LLM reconnect failed: reason=#{inspect(reconnect_reason)}")
+              {:error, reconnect_reason}
+          end
+        else
+          :ok = SessionConnectionOwner.mark_unhealthy(owner, reason)
+          {:error, reason}
+        end
     end
   end
 
@@ -209,7 +252,8 @@ defmodule Lex.LLM.Client do
          request_fun,
          conn,
          retries_left,
-         transport_path
+         transport_path,
+         acquire_retry_performed
        ) do
     case request_fun.(conn, transport_path) do
       {:ok, updated_conn} ->
@@ -228,7 +272,8 @@ defmodule Lex.LLM.Client do
           connect_fun,
           request_fun,
           retries_left,
-          error_tuple
+          error_tuple,
+          acquire_retry_performed
         )
     end
   end
@@ -238,7 +283,8 @@ defmodule Lex.LLM.Client do
          connect_fun,
          request_fun,
          retries_left,
-         {:error, maybe_conn, reason, retryable?, chunk_emitted?}
+         {:error, maybe_conn, reason, retryable?, chunk_emitted?},
+         acquire_retry_performed
        ) do
     if maybe_conn, do: Mint.HTTP.close(maybe_conn)
 
@@ -260,7 +306,8 @@ defmodule Lex.LLM.Client do
             connect_fun,
             request_fun,
             retries_left - 1,
-            :reconnected_after_retry
+            :reconnected_after_retry,
+            acquire_retry_performed
           )
 
         {:error, reconnect_reason} ->
@@ -572,6 +619,12 @@ defmodule Lex.LLM.Client do
   end
 
   defp recoverable_transport_error?(reason)
+
+  defp recoverable_transport_error?({:network_error, reason}),
+    do: recoverable_transport_error?(reason)
+
+  defp recoverable_transport_error?({:http_error, reason}),
+    do: recoverable_transport_error?(reason)
 
   defp recoverable_transport_error?(reason)
        when reason in [

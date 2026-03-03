@@ -51,7 +51,7 @@ defmodule Lex.LLM.SessionConnectionOwner do
 
   @impl true
   def init(opts) do
-    close_fun = Keyword.get(opts, :close_fun, fn _conn -> :ok end)
+    close_fun = Keyword.get(opts, :close_fun, &default_close_fun/1)
     handoff_fun = Keyword.get(opts, :handoff_fun, &default_handoff_fun/2)
 
     {:ok,
@@ -66,45 +66,31 @@ defmodule Lex.LLM.SessionConnectionOwner do
 
   @impl true
   def handle_call(
-        {:get_or_connect, _connect_fun},
+        {:get_or_connect, connect_fun},
         {caller_pid, _tag},
         %{connection: conn, healthy?: true} = state
       )
       when not is_nil(conn) do
-    case handoff_connection(state, conn, caller_pid) do
-      :ok ->
-        {:reply, {:ok, conn}, state}
+    if connection_open?(conn) do
+      case handoff_connection(state, conn, caller_pid) do
+        :ok ->
+          {:reply, {:ok, conn}, state}
 
-      {:error, reason} ->
-        {:reply, {:error, reason}, %{close_connection(state) | unhealthy_reason: reason}}
+        {:error, reason} ->
+          {:reply, {:error, reason}, mark_connection_unhealthy(state, reason)}
+      end
+    else
+      connect_and_handoff(connect_fun, caller_pid, mark_connection_unhealthy(state, :closed))
     end
   end
 
   def handle_call({:get_or_connect, connect_fun}, {caller_pid, _tag}, state) do
-    case connect_fun.() do
-      {:ok, conn} ->
-        case handoff_connection(state, conn, caller_pid) do
-          :ok ->
-            {:reply, {:ok, conn},
-             %{state | connection: conn, healthy?: true, unhealthy_reason: nil}}
-
-          {:error, reason} ->
-            _ = state.close_fun.(conn)
-
-            {:reply, {:error, reason},
-             %{state | connection: nil, healthy?: false, unhealthy_reason: reason}}
-        end
-
-      {:error, reason} ->
-        {:reply, {:error, reason},
-         %{state | connection: nil, healthy?: false, unhealthy_reason: reason}}
-    end
+    connect_and_handoff(connect_fun, caller_pid, state)
   end
 
   @impl true
   def handle_call({:mark_unhealthy, reason}, _from, state) do
-    new_state = close_connection(state)
-    {:reply, :ok, %{new_state | unhealthy_reason: reason}}
+    {:reply, :ok, mark_connection_unhealthy(state, reason)}
   end
 
   def handle_call({:reconnect, connect_fun}, _from, state) do
@@ -134,6 +120,26 @@ defmodule Lex.LLM.SessionConnectionOwner do
   end
 
   @impl true
+  def handle_info(message, %{connection: conn} = state)
+      when is_map(conn) and is_map_key(conn, :socket) do
+    case message do
+      {:tcp_closed, socket} when socket == conn.socket ->
+        {:noreply, mark_connection_unhealthy(state, :tcp_closed)}
+
+      {:ssl_closed, socket} when socket == conn.socket ->
+        {:noreply, mark_connection_unhealthy(state, :ssl_closed)}
+
+      {:tcp_error, socket, reason} when socket == conn.socket ->
+        {:noreply, mark_connection_unhealthy(state, reason)}
+
+      {:ssl_error, socket, reason} when socket == conn.socket ->
+        {:noreply, mark_connection_unhealthy(state, reason)}
+
+      _ ->
+        {:noreply, state}
+    end
+  end
+
   def handle_info(_message, state) do
     {:noreply, state}
   end
@@ -149,6 +155,41 @@ defmodule Lex.LLM.SessionConnectionOwner do
     handoff_fun.(conn, caller_pid)
   end
 
+  defp connect_and_handoff(connect_fun, caller_pid, state) do
+    case connect_fun.() do
+      {:ok, conn} ->
+        case handoff_connection(state, conn, caller_pid) do
+          :ok ->
+            {:reply, {:ok, conn},
+             %{state | connection: conn, healthy?: true, unhealthy_reason: nil}}
+
+          {:error, reason} ->
+            _ = state.close_fun.(conn)
+
+            {:reply, {:error, reason},
+             %{state | connection: nil, healthy?: false, unhealthy_reason: reason}}
+        end
+
+      {:error, reason} ->
+        {:reply, {:error, reason},
+         %{state | connection: nil, healthy?: false, unhealthy_reason: reason}}
+    end
+  end
+
+  defp mark_connection_unhealthy(state, reason) do
+    %{close_connection(state) | unhealthy_reason: reason}
+  end
+
+  defp connection_open?(conn) when is_map(conn) and is_map_key(conn, :socket) do
+    if function_exported?(Mint.HTTP, :open?, 1) do
+      Mint.HTTP.open?(conn)
+    else
+      true
+    end
+  end
+
+  defp connection_open?(_conn), do: true
+
   defp default_handoff_fun(conn, caller_pid) do
     if is_map(conn) and Map.has_key?(conn, :socket) do
       case Mint.HTTP.controlling_process(conn, caller_pid) do
@@ -161,4 +202,9 @@ defmodule Lex.LLM.SessionConnectionOwner do
       :ok
     end
   end
+
+  defp default_close_fun(conn) when is_map(conn) and is_map_key(conn, :socket),
+    do: Mint.HTTP.close(conn)
+
+  defp default_close_fun(_conn), do: :ok
 end
