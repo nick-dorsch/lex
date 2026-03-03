@@ -140,16 +140,14 @@ defmodule Lex.LLM.Client do
              body
            ) do
         {:ok, conn, _request_ref} ->
-          stream_response(conn, callback, "", [], timeout, request_sent_at_ms, false)
+          stream_response(conn, callback, "", [], timeout, request_sent_at_ms, false, false)
 
         {:error, conn, reason} ->
           Mint.HTTP.close(conn)
-          callback.({:error, {:network_error, reason}})
-          {:error, {:network_error, reason}}
+          {:error, nil, {:network_error, reason}, recoverable_transport_error?(reason), false}
 
         {:error, reason} ->
-          callback.({:error, {:network_error, reason}})
-          {:error, {:network_error, reason}}
+          {:error, nil, {:network_error, reason}, recoverable_transport_error?(reason), false}
       end
     end)
   end
@@ -157,30 +155,89 @@ defmodule Lex.LLM.Client do
   defp with_connection(uri, timeout, opts, request_fun) do
     case Keyword.get(opts, :connection_owner) do
       nil ->
-        with {:ok, conn} <- connect(uri, timeout),
-             {:ok, conn} <- request_fun.(conn) do
-          Mint.HTTP.close(conn)
-          :ok
-        else
-          {:error, conn, reason} ->
-            Mint.HTTP.close(conn)
-            {:error, {:network_error, reason}}
-
-          {:error, reason} ->
-            {:error, reason}
+        with {:ok, conn} <- connect(uri, timeout) do
+          finalize_non_owned_connection(request_fun.(conn), conn)
         end
 
       owner ->
-        with {:ok, conn} <-
-               SessionConnectionOwner.get_or_connect(owner, fn -> connect(uri, timeout) end),
-             {:ok, updated_conn} <- request_fun.(conn) do
+        connect_fun = fn -> connect(uri, timeout) end
+        with_owned_connection(owner, connect_fun, request_fun, 1)
+    end
+  end
+
+  defp finalize_non_owned_connection({:ok, updated_conn}, _original_conn) do
+    Mint.HTTP.close(updated_conn)
+    :ok
+  end
+
+  defp finalize_non_owned_connection(
+         {:error, maybe_conn, reason, _retryable?, _chunk_emitted?},
+         original_conn
+       ) do
+    Mint.HTTP.close(maybe_conn || original_conn)
+    {:error, reason}
+  end
+
+  defp with_owned_connection(owner, connect_fun, request_fun, retries_left) do
+    with {:ok, conn} <- SessionConnectionOwner.get_or_connect(owner, connect_fun) do
+      handle_owned_request_result(owner, connect_fun, request_fun, conn, retries_left)
+    end
+  end
+
+  defp handle_owned_request_result(owner, connect_fun, request_fun, conn, retries_left) do
+    case request_fun.(conn) do
+      {:ok, updated_conn} ->
+        with :ok <- return_connection_to_owner(updated_conn, owner) do
           :ok = SessionConnectionOwner.put_connection(owner, updated_conn)
           :ok
-        else
-          {:error, reason} = error ->
-            :ok = SessionConnectionOwner.mark_unhealthy(owner, reason)
-            error
         end
+
+      {:error, reason} ->
+        :ok = SessionConnectionOwner.mark_unhealthy(owner, reason)
+        {:error, reason}
+
+      {:error, _maybe_conn, _reason, _retryable?, _chunk_emitted?} = error_tuple ->
+        handle_owned_request_error(owner, connect_fun, request_fun, retries_left, error_tuple)
+    end
+  end
+
+  defp handle_owned_request_error(
+         owner,
+         connect_fun,
+         request_fun,
+         retries_left,
+         {:error, maybe_conn, reason, retryable?, chunk_emitted?}
+       ) do
+    if maybe_conn, do: Mint.HTTP.close(maybe_conn)
+
+    should_retry = retries_left > 0 and retryable? and not chunk_emitted?
+
+    if should_retry do
+      :ok = SessionConnectionOwner.mark_unhealthy(owner, reason)
+
+      with {:ok, _conn} <- SessionConnectionOwner.reconnect(owner, connect_fun) do
+        with_owned_connection(owner, connect_fun, request_fun, retries_left - 1)
+      end
+    else
+      :ok = SessionConnectionOwner.mark_unhealthy(owner, reason)
+      {:error, reason}
+    end
+  end
+
+  defp return_connection_to_owner(conn, owner) do
+    case Mint.HTTP.controlling_process(conn, owner) do
+      :ok ->
+        :ok
+
+      {:ok, _conn} ->
+        :ok
+
+      {:error, conn, reason} ->
+        Mint.HTTP.close(conn)
+        {:error, {:network_error, reason}}
+
+      {:error, reason} ->
+        {:error, {:network_error, reason}}
     end
   end
 
@@ -210,7 +267,8 @@ defmodule Lex.LLM.Client do
          chunks_acc,
          timeout,
          request_sent_at_ms,
-         first_token_logged
+         first_token_logged,
+         chunk_emitted
        ) do
     receive do
       message ->
@@ -224,11 +282,13 @@ defmodule Lex.LLM.Client do
               chunks_acc,
               timeout,
               request_sent_at_ms,
-              first_token_logged
+              first_token_logged,
+              chunk_emitted
             )
 
           {:ok, conn, responses} ->
-            {new_conn, new_buffer, new_chunks_acc, done, new_first_token_logged} =
+            {new_conn, new_buffer, new_chunks_acc, done, new_first_token_logged,
+             new_chunk_emitted} =
               process_responses(
                 conn,
                 responses,
@@ -236,34 +296,41 @@ defmodule Lex.LLM.Client do
                 chunks_acc,
                 callback,
                 request_sent_at_ms,
-                first_token_logged
+                first_token_logged,
+                chunk_emitted
               )
 
-            if done do
-              send_completion_stats(callback, new_chunks_acc)
-              {:ok, new_conn}
-            else
-              stream_response(
-                new_conn,
-                callback,
-                new_buffer,
-                new_chunks_acc,
-                timeout,
-                request_sent_at_ms,
-                new_first_token_logged
-              )
+            case done do
+              true ->
+                send_completion_stats(callback, new_chunks_acc)
+                {:ok, new_conn}
+
+              {:error, reason, retryable?} ->
+                {:error, new_conn, reason, retryable?, new_chunk_emitted}
+
+              false ->
+                stream_response(
+                  new_conn,
+                  callback,
+                  new_buffer,
+                  new_chunks_acc,
+                  timeout,
+                  request_sent_at_ms,
+                  new_first_token_logged,
+                  new_chunk_emitted
+                )
             end
 
           {:error, conn, error, _responses} ->
             Mint.HTTP.close(conn)
-            callback.({:error, {:http_error, error}})
-            {:error, {:http_error, error}}
+
+            {:error, nil, {:http_error, error}, recoverable_transport_error?(error),
+             chunk_emitted}
         end
     after
       timeout ->
         Mint.HTTP.close(conn)
-        callback.({:error, :timeout})
-        {:error, :timeout}
+        {:error, nil, :timeout, true, chunk_emitted}
     end
   end
 
@@ -274,48 +341,67 @@ defmodule Lex.LLM.Client do
          chunks_acc,
          callback,
          request_sent_at_ms,
-         first_token_logged
+         first_token_logged,
+         chunk_emitted
        ) do
-    Enum.reduce(responses, {conn, buffer, chunks_acc, false, first_token_logged}, fn response,
-                                                                                     acc ->
-      {conn, buf, chunks, done, token_logged} = acc
+    Enum.reduce(
+      responses,
+      {conn, buffer, chunks_acc, false, first_token_logged, chunk_emitted},
+      fn response, acc ->
+        {conn, buf, chunks, done, token_logged, emitted_chunk?} = acc
 
-      case response do
-        {:status, _ref, status} when status >= 400 ->
-          {conn, buf, chunks, {:error, {:http_error, status, nil}}, token_logged}
+        case response do
+          {:status, _ref, status} when status >= 400 ->
+            {conn, buf, chunks, {:error, {:http_error, status, nil}, false}, token_logged,
+             emitted_chunk?}
 
-        {:headers, _ref, _headers} ->
-          {conn, buf, chunks, done, token_logged}
+          {:headers, _ref, _headers} ->
+            {conn, buf, chunks, done, token_logged, emitted_chunk?}
 
-        {:data, _ref, data} ->
-          new_buf = buf <> data
+          {:data, _ref, data} ->
+            new_buf = buf <> data
 
-          {new_buf, new_chunks, is_done, new_token_logged} =
-            process_sse_data(new_buf, chunks, callback, request_sent_at_ms, token_logged)
+            {new_buf, new_chunks, is_done, new_token_logged, new_emitted_chunk?} =
+              process_sse_data(
+                new_buf,
+                chunks,
+                callback,
+                request_sent_at_ms,
+                token_logged,
+                emitted_chunk?
+              )
 
-          {conn, new_buf, new_chunks, is_done or done, new_token_logged}
+            {conn, new_buf, new_chunks, merge_done(done, is_done), new_token_logged,
+             new_emitted_chunk?}
 
-        {:done, _ref} ->
-          {conn, buf, chunks, true, token_logged}
+          {:done, _ref} ->
+            {conn, buf, chunks, merge_done(done, true), token_logged, emitted_chunk?}
 
-        _ ->
-          {conn, buf, chunks, done, token_logged}
+          _ ->
+            {conn, buf, chunks, done, token_logged, emitted_chunk?}
+        end
       end
-    end)
-    |> case do
-      {conn, buf, chunks, {:error, reason}, token_logged} ->
-        callback.({:error, reason})
-        {conn, buf, chunks, true, token_logged}
-
-      other ->
-        other
-    end
+    )
   end
 
-  defp process_sse_data(buffer, chunks_acc, callback, request_sent_at_ms, first_token_logged) do
+  defp process_sse_data(
+         buffer,
+         chunks_acc,
+         callback,
+         request_sent_at_ms,
+         first_token_logged,
+         chunk_emitted
+       ) do
     buffer
     |> String.split("\n\n", trim: false)
-    |> process_sse_lines([], chunks_acc, callback, request_sent_at_ms, first_token_logged)
+    |> process_sse_lines(
+      [],
+      chunks_acc,
+      callback,
+      request_sent_at_ms,
+      first_token_logged,
+      chunk_emitted
+    )
   end
 
   defp process_sse_lines(
@@ -324,9 +410,10 @@ defmodule Lex.LLM.Client do
          chunks_acc,
          _callback,
          _request_sent_at_ms,
-         first_token_logged
+         first_token_logged,
+         chunk_emitted
        ),
-       do: {Enum.join(remaining, "\n\n"), chunks_acc, false, first_token_logged}
+       do: {Enum.join(remaining, "\n\n"), chunks_acc, false, first_token_logged, chunk_emitted}
 
   defp process_sse_lines(
          [last],
@@ -334,10 +421,11 @@ defmodule Lex.LLM.Client do
          chunks_acc,
          _callback,
          _request_sent_at_ms,
-         first_token_logged
+         first_token_logged,
+         chunk_emitted
        ) do
     # Last incomplete chunk
-    {Enum.join(remaining ++ [last], "\n\n"), chunks_acc, false, first_token_logged}
+    {Enum.join(remaining ++ [last], "\n\n"), chunks_acc, false, first_token_logged, chunk_emitted}
   end
 
   defp process_sse_lines(
@@ -346,10 +434,11 @@ defmodule Lex.LLM.Client do
          chunks_acc,
          _callback,
          _request_sent_at_ms,
-         first_token_logged
+         first_token_logged,
+         chunk_emitted
        ) do
     # Single line that might be incomplete
-    {"", chunks_acc, false, first_token_logged}
+    {"", chunks_acc, false, first_token_logged, chunk_emitted}
   end
 
   defp process_sse_lines(
@@ -358,11 +447,12 @@ defmodule Lex.LLM.Client do
          chunks_acc,
          callback,
          request_sent_at_ms,
-         first_token_logged
+         first_token_logged,
+         chunk_emitted
        ) do
     case parse_sse_line(line) do
       :done ->
-        {"", chunks_acc, true, first_token_logged}
+        {"", chunks_acc, true, first_token_logged, chunk_emitted}
 
       {:chunk, content} ->
         should_log_ttft = not first_token_logged and String.trim(content) != ""
@@ -380,7 +470,8 @@ defmodule Lex.LLM.Client do
           [content | chunks_acc],
           callback,
           request_sent_at_ms,
-          first_token_logged or should_log_ttft
+          first_token_logged or should_log_ttft,
+          true
         )
 
       :skip ->
@@ -390,7 +481,8 @@ defmodule Lex.LLM.Client do
           chunks_acc,
           callback,
           request_sent_at_ms,
-          first_token_logged
+          first_token_logged,
+          chunk_emitted
         )
 
       :incomplete ->
@@ -400,10 +492,36 @@ defmodule Lex.LLM.Client do
           chunks_acc,
           callback,
           request_sent_at_ms,
-          first_token_logged
+          first_token_logged,
+          chunk_emitted
         )
     end
   end
+
+  defp recoverable_transport_error?(reason)
+
+  defp recoverable_transport_error?(reason)
+       when reason in [
+              :closed,
+              :timeout,
+              :econnreset,
+              :econnaborted,
+              :enetdown,
+              :ehostdown,
+              :ehostunreach,
+              :closed_for_writing
+            ],
+       do: true
+
+  defp recoverable_transport_error?({:closed, _}), do: true
+  defp recoverable_transport_error?({:tcp_closed, _}), do: true
+  defp recoverable_transport_error?({:tls_closed, _}), do: true
+  defp recoverable_transport_error?(%Mint.TransportError{}), do: true
+  defp recoverable_transport_error?(_reason), do: false
+
+  defp merge_done({:error, _reason, _retryable?} = error, _is_done), do: error
+  defp merge_done(done, false), do: done
+  defp merge_done(_done, true), do: true
 
   defp parse_sse_line(line) do
     line = String.trim(line)

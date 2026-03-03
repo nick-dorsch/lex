@@ -3,6 +3,9 @@ defmodule Lex.LLM.ClientTest do
 
   alias Lex.LLM.Client
   alias Lex.LLM.ClientMock
+  alias Lex.LLM.SessionConnectionOwner
+  alias Lex.TestLLMStreamingPlug
+  alias Lex.TestLLMUnauthorizedPlug
 
   setup do
     # Store original config values
@@ -400,6 +403,70 @@ defmodule Lex.LLM.ClientTest do
     end
   end
 
+  describe "connection owner retry behavior" do
+    test "reconnects once and retries transparently on stale reusable connection" do
+      Application.delete_env(:lex, :llm_client)
+      TestLLMStreamingPlug.ensure_counter!()
+
+      port = random_available_port()
+
+      start_supervised!(
+        {Plug.Cowboy,
+         scheme: :http,
+         plug: TestLLMStreamingPlug,
+         options: [port: port, protocol_options: [idle_timeout: 50]]}
+      )
+
+      Application.put_env(:lex, :llm_base_url, "http://127.0.0.1:#{port}")
+      Application.put_env(:lex, :llm_timeout_ms, 500)
+
+      {:ok, owner} = SessionConnectionOwner.start_link()
+
+      assert_stream_done(owner)
+      Process.sleep(120)
+      assert_stream_done(owner)
+
+      assert TestLLMStreamingPlug.request_count() in [2, 3]
+    end
+
+    test "does not retry non-recoverable HTTP status errors" do
+      Application.delete_env(:lex, :llm_client)
+      TestLLMStreamingPlug.ensure_counter!()
+
+      port = random_available_port()
+
+      start_supervised!(
+        {Plug.Cowboy,
+         scheme: :http,
+         plug: TestLLMUnauthorizedPlug,
+         options: [port: port, protocol_options: [idle_timeout: 50]]}
+      )
+
+      Application.put_env(:lex, :llm_base_url, "http://127.0.0.1:#{port}")
+      Application.put_env(:lex, :llm_timeout_ms, 500)
+
+      {:ok, owner} = SessionConnectionOwner.start_link()
+
+      test_pid = self()
+
+      callback = fn
+        {:chunk, content} -> send(test_pid, {:chunk_received, content})
+        {:done, _stats} -> send(test_pid, :done_received)
+        {:error, reason} -> send(test_pid, {:error_received, reason})
+      end
+
+      messages = [%{role: "user", content: "Hola"}]
+
+      assert {:ok, task} =
+               Client.stream_chat_completion(messages, callback, connection_owner: owner)
+
+      Task.await(task)
+
+      assert_receive {:error_received, {:http_error, 401, nil}}, 1000
+      refute_receive :done_received, 100
+    end
+  end
+
   describe "error handling" do
     test "handles invalid callback gracefully" do
       messages = [%{role: "user", content: "Hello"}]
@@ -524,5 +591,33 @@ defmodule Lex.LLM.ClientTest do
       assert_receive :chunk_received, 1000
       assert_receive :done_received, 1000
     end
+  end
+
+  defp assert_stream_done(owner) do
+    test_pid = self()
+
+    callback = fn
+      {:chunk, content} -> send(test_pid, {:chunk_received, content})
+      {:done, stats} -> send(test_pid, {:done_received, stats})
+      {:error, reason} -> send(test_pid, {:error_received, reason})
+    end
+
+    messages = [%{role: "user", content: "Hola"}]
+
+    assert {:ok, task} =
+             Client.stream_chat_completion(messages, callback, connection_owner: owner)
+
+    Task.await(task)
+
+    assert_receive {:chunk_received, "hola"}, 1000
+    assert_receive {:done_received, _stats}, 1000
+    refute_receive {:error_received, _}, 100
+  end
+
+  defp random_available_port do
+    {:ok, socket} = :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}])
+    {:ok, port} = :inet.port(socket)
+    :ok = :gen_tcp.close(socket)
+    port
   end
 end
