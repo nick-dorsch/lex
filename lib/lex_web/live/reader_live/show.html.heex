@@ -139,11 +139,12 @@
                   class={token_class}
                   phx-click={if is_selectable, do: "click_token", else: nil}
                   phx-value-token_index={if is_selectable, do: index, else: nil}
-                  data-token-index={index}
-                  data-selectable={to_string(is_selectable)}
-                >
-                  <%= token.surface %>
-                </span>
+                   data-token-index={index}
+                   data-selectable={to_string(is_selectable)}
+                   data-token-status={token_status || "unknown"}
+                 >
+                   <%= token.surface %>
+                 </span>
               <% end %>
             </div>
             </div>

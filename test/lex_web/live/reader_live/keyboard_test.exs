@@ -10,6 +10,7 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
   alias Lex.Text.Sentence
   alias Lex.Text.Token
   alias Lex.Text.Lexeme
+  alias Lex.Vocab.UserLexemeState
 
   describe "keyboard navigation" do
     test "handles key_nav event for 'j' key", %{conn: conn} do
@@ -62,6 +63,30 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
 
       # Send key_nav event for 'b' key
       assert render_hook(view, :key_nav, %{"key" => "b"})
+    end
+
+    test "handles key_nav event for 'W' key", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "This is a test sentence.")
+      create_tokens_for_sentence(sentence, ["This", "is", "a", "test", "sentence", "."])
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      assert render_hook(view, :key_nav, %{"key" => "W"})
+    end
+
+    test "handles key_nav event for 'B' key", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "This is a test sentence.")
+      create_tokens_for_sentence(sentence, ["This", "is", "a", "test", "sentence", "."])
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      assert render_hook(view, :key_nav, %{"key" => "B"})
     end
 
     test "handles key_nav event for 'space' key", %{conn: conn} do
@@ -224,6 +249,45 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       # Wrap to last token
       html = render_hook(view, :key_nav, %{"key" => "b"})
       assert html =~ "third"
+    end
+
+    test "'W' key jumps to next non-known token", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "First second third.")
+      tokens = create_tokens_for_sentence(sentence, ["First", "second", "third", "."])
+
+      create_user_lexeme_state(user.id, Enum.at(tokens, 0).lexeme_id, "known")
+      create_user_lexeme_state(user.id, Enum.at(tokens, 2).lexeme_id, "known")
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      render_hook(view, :key_nav, %{"key" => "W"})
+
+      assert has_element?(view, ".token-focused[data-token-index='2']")
+    end
+
+    test "'B' key jumps to previous non-known token", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+      section = create_section(document)
+      sentence = create_sentence(section, 1, "First second third fourth.")
+      tokens = create_tokens_for_sentence(sentence, ["First", "second", "third", "fourth", "."])
+
+      create_user_lexeme_state(user.id, Enum.at(tokens, 0).lexeme_id, "known")
+      create_user_lexeme_state(user.id, Enum.at(tokens, 2).lexeme_id, "known")
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      render_hook(view, :key_nav, %{"key" => "w"})
+      render_hook(view, :key_nav, %{"key" => "w"})
+      render_hook(view, :key_nav, %{"key" => "w"})
+      render_hook(view, :key_nav, %{"key" => "w"})
+
+      render_hook(view, :key_nav, %{"key" => "B"})
+
+      assert has_element?(view, ".token-focused[data-token-index='2']")
     end
 
     test "focus resets when navigating to next sentence", %{conn: conn} do
@@ -558,6 +622,23 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
 
     %Lexeme{}
     |> Lexeme.changeset(attrs)
+    |> Repo.insert!()
+  end
+
+  defp create_user_lexeme_state(user_id, lexeme_id, status) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    %UserLexemeState{}
+    |> UserLexemeState.changeset(%{
+      user_id: user_id,
+      lexeme_id: lexeme_id,
+      status: status,
+      seen_count: 1,
+      first_seen_at: now,
+      last_seen_at: now,
+      known_at: if(status == "known", do: now, else: nil),
+      learning_since: if(status == "learning", do: now, else: nil)
+    })
     |> Repo.insert!()
   end
 end

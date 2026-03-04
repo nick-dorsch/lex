@@ -201,6 +201,12 @@ defmodule LexWeb.ReaderLive.Show do
       "b" ->
         handle_previous_token(socket)
 
+      "W" ->
+        handle_next_non_known_token(socket)
+
+      "B" ->
+        handle_previous_non_known_token(socket)
+
       "space" ->
         handle_llm_help(socket)
 
@@ -236,6 +242,30 @@ defmodule LexWeb.ReaderLive.Show do
     selectable_indices = selectable_token_indices(socket.assigns.tokens)
 
     new_index = previous_selectable_index(selectable_indices, socket.assigns.focused_token_index)
+
+    {:noreply, assign(socket, focused_token_index: new_index)}
+  end
+
+  # Handles navigation to next non-known token (W key)
+  defp handle_next_non_known_token(socket) do
+    socket = maybe_dismiss_popup(socket)
+
+    non_known_indices =
+      non_known_token_indices(socket.assigns.tokens, socket.assigns.lexeme_states)
+
+    new_index = next_selectable_index(non_known_indices, socket.assigns.focused_token_index)
+
+    {:noreply, assign(socket, focused_token_index: new_index)}
+  end
+
+  # Handles navigation to previous non-known token (B key)
+  defp handle_previous_non_known_token(socket) do
+    socket = maybe_dismiss_popup(socket)
+
+    non_known_indices =
+      non_known_token_indices(socket.assigns.tokens, socket.assigns.lexeme_states)
+
+    new_index = previous_selectable_index(non_known_indices, socket.assigns.focused_token_index)
 
     {:noreply, assign(socket, focused_token_index: new_index)}
   end
@@ -1074,6 +1104,23 @@ defmodule LexWeb.ReaderLive.Show do
     |> Enum.with_index(1)
     |> Enum.filter(fn {token, _index} -> not token.is_punctuation end)
     |> Enum.map(fn {_token, index} -> index end)
+  end
+
+  defp non_known_token_indices(tokens, lexeme_states) do
+    tokens
+    |> Enum.with_index(1)
+    |> Enum.filter(fn {token, _index} ->
+      not token.is_punctuation and
+        not known_token?(token, lexeme_states)
+    end)
+    |> Enum.map(fn {_token, index} -> index end)
+  end
+
+  defp known_token?(token, lexeme_states) do
+    case token.lexeme_id && Map.get(lexeme_states, token.lexeme_id) do
+      %{status: "known"} -> true
+      _ -> false
+    end
   end
 
   defp selectable_token_index?(tokens, token_index) do
