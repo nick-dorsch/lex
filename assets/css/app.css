@@ -860,9 +860,8 @@
   /* LLM Popup */
   .llm-popup {
     position: fixed;
-    top: 50%;
+    top: 6rem;
     right: 1rem;
-    transform: translateY(-50%);
     width: 350px;
     max-height: 70vh;
     display: flex;
@@ -877,12 +876,12 @@
   @keyframes llm-popup-fade-in {
     from {
       opacity: 0;
-      transform: translateY(-50%) translateX(10px);
+      transform: translateY(-6px) translateX(10px);
     }
 
     to {
       opacity: 1;
-      transform: translateY(-50%) translateX(0);
+      transform: translateY(0) translateX(0);
     }
   }
 
