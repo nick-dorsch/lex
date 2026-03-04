@@ -45,9 +45,9 @@
               </button>
             </div>
         </div>
-        <!-- Section progress bar -->
+        <!-- Document progress bar -->
         <div class="reader-progress-bar w-[calc(100%+2rem)] -mx-4 h-px overflow-hidden">
-          <div class="reader-progress-fill h-full transition-all duration-300 ease-out" style={"width: " <> to_string(@section_progress) <> "%"}></div>
+          <div class="reader-progress-fill h-full transition-all duration-300 ease-out" style={"width: " <> to_string(@document_progress) <> "%"}></div>
         </div>
       </div>
     <% end %>
@@ -108,12 +108,19 @@
 
             <!-- Current sentence (prominent, full size) -->
             <div class="current-sentence reader-current-sentence text-2xl sm:text-3xl md:text-4xl text-left w-full leading-relaxed font-medium">
-              <div class="tokens-container flex flex-wrap justify-start gap-x-1 gap-y-2">
+              <div class="tokens-container flex flex-wrap justify-start gap-y-2">
                 <%= for {token, index} <- Enum.with_index(@tokens, 1) do %>
                 <% lexeme_state = Map.get(@lexeme_states, token.lexeme_id)
                    token_status = lexeme_state && lexeme_state.status
                    is_selectable = not token.is_punctuation
                    is_focused = @focused_token_index == index
+                   prev_token = if index > 1, do: Enum.at(@tokens, index - 2), else: nil
+                   has_leading_space =
+                     prev_token &&
+                       is_integer(token.char_start) &&
+                       is_integer(prev_token.char_end) &&
+                       token.char_start > prev_token.char_end
+
                    status_class =
                      cond do
                        not is_selectable -> "token-punctuation"
@@ -125,8 +132,9 @@
 
                    focus_class = if is_focused, do: " token-focused", else: ""
                    pointer_class = if is_selectable, do: "cursor-pointer", else: "cursor-default"
-                    token_class = "token #{status_class}#{focus_class} #{pointer_class} px-1 py-0.5 rounded transition-colors duration-75"
-                  %>
+                   spacing_class = if has_leading_space, do: "ml-1", else: ""
+                   token_class = "token #{status_class}#{focus_class} #{pointer_class} #{spacing_class} px-1 py-0.5 rounded transition-colors duration-75"
+                %>
                 <span
                   class={token_class}
                   phx-click={if is_selectable, do: "click_token", else: nil}
@@ -153,9 +161,9 @@
         </div>
 
       <div class="reader-controls reader-chrome reader-chrome-bottom fixed bottom-0 left-0 right-0 px-4 pt-0 pb-4 flex flex-col items-start justify-center gap-3">
-        <!-- Document progress bar -->
+        <!-- Section progress bar -->
         <div class="reader-progress-bar w-[calc(100%+2rem)] -mx-4 h-px overflow-hidden">
-          <div class="reader-progress-fill h-full transition-all duration-300 ease-out" style={"width: " <> to_string(@document_progress) <> "%"}></div>
+          <div class="reader-progress-fill h-full transition-all duration-300 ease-out" style={"width: " <> to_string(@section_progress) <> "%"}></div>
         </div>
         <div class="w-full reader-footer-row flex items-center justify-start gap-3 pt-2">
           <div class="reader-footer-section"><%= @section.title || "Untitled Section" %></div>
