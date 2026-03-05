@@ -4,10 +4,11 @@ version = "0.1.0"
 description = "Lex NLP pipeline for text processing and analysis"
 requires-python = ">=3.13"
 dependencies = [
-    "spacy>=3.7.0",  # Model installation: python -m spacy download es_core_news_md
+    "spacy>=3.7.0",
     "ebooklib>=0.18",
     "lxml>=5.3.0",
     "pytest>=9.0.2",
+    "es-core-news-md",
 ]
 
 [project.optional-dependencies]
@@ -25,3 +26,6 @@ packages = ["lex_nlp"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+
+[tool.uv.sources]
+es-core-news-md = { url = "https://github.com/explosion/spacy-models/releases/download/es_core_news_md-3.8.0/es_core_news_md-3.8.0-py3-none-any.whl" }

@@ -8,49 +8,30 @@ You import books (EPUB), read sentence-by-sentence, and track vocabulary progres
 
 The two most important commands are:
 
-- Development server: `task dev`
-- Production-mode server: `task run` (alias: `task prod`)
+- Development server: `mise run dev`
+- Production-mode server: `mise run prod`
 
 Both start the app on `http://localhost:4000` by default.
 
 ### 1) First-time setup
 
-Install required tools (recommended via `mise`):
+Install required tools:
 
 ```bash
-mise install
+mise install && mise run setup
 ```
 
-Install Elixir dependencies and create/migrate the database:
+This one-liner installs tool versions and runs first-time setup (Elixir deps, DB setup,
+`.env` bootstrap if missing, Python deps, and spaCy model check/download).
 
-```bash
-mix setup
-```
-
-Create your local environment file:
-
-```bash
-cp .env.example .env
-```
-
-Install Python dependencies for the NLP pipeline:
-
-```bash
-uv sync --project priv/python
-```
-
-Install the Spanish spaCy model used by the importer:
-
-```bash
-uv run --project priv/python python -m spacy download es_core_news_md
-```
+All `mise run ...` tasks automatically load environment variables from `.env`.
 
 ## Development Server
 
 Use this for local development with code reloading and Tailwind watcher:
 
 ```bash
-task dev
+mise run dev
 ```
 
 Equivalent direct command:
@@ -72,10 +53,10 @@ Open `http://localhost:4000`.
 
 Use this to run the app with production config locally or on a server.
 
-### Quick start (Taskfile)
+### Quick start (mise task)
 
 ```bash
-task run
+mise run prod
 ```
 
 This task:
@@ -88,6 +69,8 @@ This task:
 At minimum, set:
 
 - `SECRET_KEY_BASE` (required in prod)
+
+`mise run prod` will fail fast if `SECRET_KEY_BASE` is missing.
 
 Generate one if needed:
 
@@ -112,7 +95,7 @@ Run migrations before first prod start (and after schema changes):
 MIX_ENV=prod mix ecto.migrate
 ```
 
-### Direct prod commands (without `task`)
+### Direct prod commands (without `mise run`)
 
 ```bash
 MIX_ENV=prod mix assets.deploy
@@ -121,7 +104,7 @@ MIX_ENV=prod mix phx.server
 
 ## User Guide (Quick)
 
-1. Start server (`task dev` or `task run`)
+1. Start server (`mise run dev` or `mise run prod`)
 2. Open `http://localhost:4000`
 3. Complete the profile setup modal (name/email/target languages)
 4. Ensure your Calibre library path exists (`CALIBRE_LIBRARY_PATH`)
@@ -152,7 +135,7 @@ Main routes:
 
 ```bash
 # Run all tests
-task test
+mise run test
 
 # Elixir tests only
 mix test
@@ -182,7 +165,7 @@ mix dialyzer
 - `SECRET_KEY_BASE is missing` in prod:
   - Set `SECRET_KEY_BASE` before starting prod server.
 - Import fails with Python/model errors:
-  - Confirm Python deps are installed in an environment available to `python` on your PATH.
-  - Install model: `python -m spacy download es_core_news_md`
+  - Re-run project setup: `mise run setup`.
+  - If needed, manually sync Python deps: `uv sync --project priv/python`.
 - Port already in use:
-  - Set a different port, for example: `PORT=4001 task run`
+  - Set a different port, for example: `PORT=4001 mise run prod`

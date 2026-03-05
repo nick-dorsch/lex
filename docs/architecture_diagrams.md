@@ -104,7 +104,7 @@ flowchart LR
 ```mermaid
 flowchart TB
     subgraph Dev[Development]
-      DevCmd[task dev / mix phx.server]
+      DevCmd[mise run dev / mix phx.server]
       DevCfg[config/dev.exs]
       DevDB[(priv/repo/lex_dev.db)]
       Tailwind[tailwind --watch]
@@ -113,7 +113,7 @@ flowchart TB
     end
 
     subgraph Prod[Production Mode]
-      ProdCmd[task run / MIX_ENV=prod mix phx.server]
+      ProdCmd[mise run prod / MIX_ENV=prod mix phx.server]
       Assets[MIX_ENV=prod mix assets.deploy]
       Runtime[config/runtime.exs]
       Env[SECRET_KEY_BASE, PORT, HOST, etc]

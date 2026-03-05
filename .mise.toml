@@ -5,5 +5,46 @@ python = "3.13"
 uv = "latest"
 jq = "latest"
 node = "24"
-task = "latest"
 lazygit = "latest"
+
+[env]
+_.file = ".env"
+
+[tasks.setup]
+description = "First-time project setup"
+run = [
+  "mix setup",
+  "[ -f .env ] || cp .env.example .env",
+  "uv sync --project priv/python",
+  "uv run --directory priv/python python -c \"import spacy; spacy.load('es_core_news_md')\""
+]
+
+[tasks.dev]
+description = "Run Phoenix development server"
+run = "mix phx.server"
+
+[tasks.prod]
+description = "Run Phoenix in prod mode"
+run = [
+  "MIX_ENV=prod mix assets.deploy",
+  "MIX_ENV=prod mix phx.server"
+]
+
+[tasks.prod.env]
+SECRET_KEY_BASE = { required = "Set SECRET_KEY_BASE in .env (or shell env) before running prod. Generate one with: mix phx.gen.secret" }
+
+[tasks.test]
+description = "Run Python and Elixir tests"
+run = [
+  "uv run --directory priv/python pytest",
+  "mix test"
+]
+
+[tasks.reset-db]
+description = "Reset database (drop/create/migrate)"
+confirm = "Danger: this will DROP and recreate the MIX_ENV={{env.MIX_ENV | default(value='dev')}} database. Continue?"
+run = "mix ecto.reset"
+
+[tasks.nlp]
+description = "Run NLP demo text"
+run = "uv run --directory priv/python python lex_nlp.py --text \"${TEXT:-El gato come pescado. Te gusta el cafe?}\" --output /tmp/lex_demo.json && jq . /tmp/lex_demo.json"

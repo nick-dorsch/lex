@@ -49,13 +49,13 @@ uv run pytest tests/test_file.py
 uv run pytest tests/test_file.py::test_function_name
 ```
 
-### Task Commands (via Taskfile)
+### Mise Task Commands
 ```bash
 # Run all tests (Elixir + Python)
-task test
+mise run test
 
 # Run NLP demo
-task nlp
+mise run nlp
 ```
 
 ## Code Style Guidelines
@@ -214,5 +214,5 @@ end
 
 - **No Cursor/Copilot rules** currently configured
 - Use `mise` for tool version management (Erlang 26.2, Elixir 1.16, Python 3.13)
-- Python NLP requires spaCy model: `python -m spacy download es_core_news_md`
-- Run full test suite with `task test` before committing
+- Python NLP model is installed via `uv sync --project priv/python`
+- Run full test suite with `mise run test` before committing
