@@ -1160,10 +1160,10 @@ defmodule Lex.VocabTest do
       {system_msg, user_msg} = Vocab.build_llm_prompt(token, sentence, document, user)
 
       assert system_msg =~ "You are a language learner's reading assistant"
+      assert system_msg =~ "Translate from #{document.language} into en."
       assert user_msg =~ "Word: mundo (lemma: mundo, pos: NOUN)"
       assert user_msg =~ "Sentence context: Hola mundo cruel."
       assert user_msg =~ "Source: El Quijote by Cervantes"
-      assert user_msg =~ "Respond in en"
     end
 
     test "uses user primary_language for response" do
@@ -1180,7 +1180,7 @@ defmodule Lex.VocabTest do
 
       {_system_msg, user_msg} = Vocab.build_llm_prompt(token, sentence, document, user)
 
-      assert user_msg =~ "Respond in fr"
+      refute user_msg =~ "Respond in"
     end
   end
 

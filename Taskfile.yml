@@ -7,10 +7,20 @@ vars:
 
 tasks:
   run:
-    desc: Run the Phoenix web server
+    desc: Run the Phoenix web server in prod mode
+    aliases: [prod]
     silent: true
     cmds:
+      - echo "Building static assets..."
+      - MIX_ENV=prod mix assets.deploy
       - echo "Running Lex server on localhost:4000..."
+      - MIX_ENV=prod mix phx.server
+
+  dev:
+    desc: Run the Phoenix web server in dev mode
+    silent: true
+    cmds:
+      - echo "Running Lex server in dev mode on localhost:4000..."
       - mix phx.server
 
   test:

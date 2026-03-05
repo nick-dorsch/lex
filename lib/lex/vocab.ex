@@ -483,24 +483,33 @@ defmodule Lex.Vocab do
         ) :: {String.t(), String.t()}
   def build_llm_prompt(token, sentence, document, user) do
     system_message = """
-      You are a language learner's reading assistant. 
+      You are a language learner's reading assistant.
 
-      Your responses should be in the format:
+      Return output in this exact Markdown shape (including the dividers):
 
-      **Word** - translation of word
+      **Translation - #{document.language} to #{user.primary_language} translation of the Word
 
-      **Context** - explanaton of word usage in context
+      ---
 
-      Do not think, just respond!
+      **Context - ** short explanation of how the word is used in this sentence.
 
-      Respond to the following:
+
+      Formatting requirements (strict):
+      - The first line must start with exactly `**Translation** - `.
+      - Include 1 to 3 translations, choosing the best fit for this sentence context.
+      - Follow the translations with a part-of-speech label in brackets (for example: [noun], [verb], [adjective], [adverb]).
+      - The second paragraph must start with exactly `**Context - ** `.
+      - Keep context concise (one short sentence).
+      - Translate only the target word, not the whole sentence.
+      - Translate from #{document.language} into #{user.primary_language}.
+
+      Repond to the following:
     """
 
     user_message = """
     Word: #{token.surface} (lemma: #{token.lemma}, pos: #{token.pos})
     Sentence context: #{sentence.text}
     Source: #{document.title} by #{document.author}
-    Respond in #{user.primary_language}
     """
 
     {system_message, user_message}
