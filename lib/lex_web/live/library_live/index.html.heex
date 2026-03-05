@@ -34,6 +34,26 @@
     </div>
   </div>
 
+  <div class="library-filter-pills" style="text-align: right;">
+    <button
+      type="button"
+      class={"filter-pill #{if @filter_mode == :imported, do: "active", else: ""}"}
+      phx-click="toggle_imported_filter"
+      aria-pressed={if @filter_mode == :imported, do: "true", else: "false"}
+    >
+      IMPORTED
+    </button>
+
+    <button
+      type="button"
+      class={"filter-pill #{if @filter_mode == :in_progress, do: "active", else: ""}"}
+      phx-click="toggle_in_progress_filter"
+      aria-pressed={if @filter_mode == :in_progress, do: "true", else: "false"}
+    >
+      IN PROGRESS
+    </button>
+  </div>
+
   <%= if Enum.empty?(@items) do %>
     <div class="empty-state">
       <p>No documents found.</p>
@@ -44,7 +64,7 @@
       <% end %>
     </div>
   <% else %>
-    <%= for {author, author_items} <- items_by_author(@items) do %>
+    <%= for {author, author_items} <- items_by_author(@items, @filter_mode) do %>
       <section class="library-author-section">
         <div class="library-author-header">
           <h2 class="library-author-name"><%= author %></h2>

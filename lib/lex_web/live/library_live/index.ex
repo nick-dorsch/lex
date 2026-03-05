@@ -50,6 +50,7 @@ defmodule LexWeb.LibraryLive.Index do
      |> assign(:calibre_available, calibre_available?())
      |> assign(:refreshing, false)
      |> assign(:pending_import_file_path, nil)
+     |> assign(:filter_mode, :all)
      |> assign_profile_setup_state(user_id)}
   end
 
@@ -183,6 +184,18 @@ defmodule LexWeb.LibraryLive.Index do
   @impl true
   def handle_event("import_epub", %{"file_path" => file_path}, socket) do
     start_import(socket, to_string(file_path))
+  end
+
+  @impl true
+  def handle_event("toggle_imported_filter", _params, socket) do
+    new_mode = if socket.assigns.filter_mode == :imported, do: :all, else: :imported
+    {:noreply, assign(socket, :filter_mode, new_mode)}
+  end
+
+  @impl true
+  def handle_event("toggle_in_progress_filter", _params, socket) do
+    new_mode = if socket.assigns.filter_mode == :in_progress, do: :all, else: :in_progress
+    {:noreply, assign(socket, :filter_mode, new_mode)}
   end
 
   @impl true
@@ -680,6 +693,25 @@ defmodule LexWeb.LibraryLive.Index do
     else
       "language-badge known"
     end
+  end
+
+  defp items_by_author(items, :all), do: items_by_author(items)
+
+  defp items_by_author(items, :imported) do
+    items
+    |> Enum.filter(&(&1.import_status == :imported))
+    |> items_by_author()
+  end
+
+  defp items_by_author(items, :in_progress) do
+    items
+    |> Enum.filter(&in_progress?/1)
+    |> items_by_author()
+  end
+
+  defp in_progress?(item) do
+    item.import_status == :imported and not is_nil(item.progress) and item.progress > 0 and
+      item.progress < 100
   end
 
   defp items_by_author(items) do

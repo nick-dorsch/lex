@@ -14,7 +14,6 @@
                 title="Back to Library"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
-                <span class="hidden sm:inline">Library</span>
               </button>
               <div class="reader-word-counts">
               <span><strong>R</strong> <%= @vocab_counts.read %></span>
@@ -23,8 +22,8 @@
               </div>
             </div>
             <div class="reader-header-meta">
-              <p class="reader-footer-title"><%= @document.title || "Untitled Document" %></p>
-              <p class="reader-footer-author"><%= @document.author || "Unknown Author" %></p>
+              <p class="reader-header-title"><%= @document.title || "Untitled Document" %></p>
+              <p class="reader-header-author"><%= @document.author || "Unknown Author" %></p>
             </div>
             <div class="flex items-center gap-2">
               <button
@@ -40,8 +39,8 @@
                 phx-click="skip_section"
                 title="Skip to next section (s key)"
               >
+                <span class="hidden sm:inline">Next Section</span>
                 <span>↷</span>
-                <span class="hidden sm:inline">Skip Section</span>
               </button>
             </div>
         </div>

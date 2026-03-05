@@ -16,7 +16,10 @@ module.exports = {
     "profile-setup-error",
     "profile-language-options",
     "profile-language-option",
-    "profile-setup-submit"
+    "profile-setup-submit",
+    "library-filter-pills",
+    "filter-pill",
+    "active"
   ],
   theme: {
     extend: {
