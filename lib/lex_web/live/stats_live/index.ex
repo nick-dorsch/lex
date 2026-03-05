@@ -55,36 +55,41 @@ defmodule LexWeb.StatsLive.Index do
     do: Repo.one(from(u in User, order_by: [asc: u.id], limit: 1, select: u.id))
 
   defp load_timeline(user_id) do
-    read_by_day = count_lexemes_per_day(user_id, :first_seen_at)
-    learning_by_day = count_lexemes_per_day(user_id, :learning_since)
-    known_by_day = count_lexemes_per_day(user_id, :known_at)
+    read_by_hour = count_lexemes_per_hour(user_id, :first_seen_at)
+    learning_by_hour = count_lexemes_per_hour(user_id, :learning_since)
+    known_by_hour = count_lexemes_per_hour(user_id, :known_at)
 
-    all_dates =
-      (Map.keys(read_by_day) ++ Map.keys(learning_by_day) ++ Map.keys(known_by_day))
+    all_hours =
+      (Map.keys(read_by_hour) ++ Map.keys(learning_by_hour) ++ Map.keys(known_by_hour))
       |> Enum.uniq()
       |> Enum.sort()
 
     {timeline, _running} =
-      Enum.reduce(all_dates, {[], %{read: 0, learning: 0, known: 0}}, fn date, {acc, running} ->
+      Enum.reduce(all_hours, {[], %{read: 0, learning: 0, known: 0}}, fn hour, {acc, running} ->
         next = %{
-          read: running.read + Map.get(read_by_day, date, 0),
-          learning: running.learning + Map.get(learning_by_day, date, 0),
-          known: running.known + Map.get(known_by_day, date, 0)
+          read: running.read + Map.get(read_by_hour, hour, 0),
+          learning: running.learning + Map.get(learning_by_hour, hour, 0),
+          known: running.known + Map.get(known_by_hour, hour, 0)
         }
 
-        point = %{date: date, read: next.read, learning: next.learning, known: next.known}
+        point = %{hour: hour, read: next.read, learning: next.learning, known: next.known}
         {[point | acc], next}
       end)
 
     Enum.reverse(timeline)
   end
 
-  defp count_lexemes_per_day(user_id, timestamp_field) do
+  defp count_lexemes_per_hour(user_id, timestamp_field) do
     UserLexemeState
     |> where([s], s.user_id == ^user_id)
     |> where([s], not is_nil(field(s, ^timestamp_field)))
-    |> group_by([s], fragment("date(?)", field(s, ^timestamp_field)))
-    |> select([s], {fragment("date(?)", field(s, ^timestamp_field)), count(s.id)})
+    |> group_by([s], fragment("strftime('%Y-%m-%d %H:00:00', ?)", field(s, ^timestamp_field)))
+    |> select(
+      [
+        s
+      ],
+      {fragment("strftime('%Y-%m-%d %H:00:00', ?)", field(s, ^timestamp_field)), count(s.id)}
+    )
     |> Repo.all()
     |> Map.new()
   end
@@ -227,15 +232,17 @@ defmodule LexWeb.StatsLive.Index do
 
   defp edge_labels(timeline) do
     %{
-      start: format_date_label(List.first(timeline).date),
-      end: format_date_label(List.last(timeline).date)
+      start: format_date_label(List.first(timeline).hour),
+      end: format_date_label(List.last(timeline).hour)
     }
   end
 
-  defp format_date_label(date) do
+  defp format_date_label(hourly_bucket) do
+    date = hourly_bucket |> String.split(" ", parts: 2) |> List.first()
+
     case String.split(date, "-") do
       [year, month, day] -> "#{month}/#{day}/#{year}"
-      _ -> date
+      _ -> hourly_bucket
     end
   end
 end
