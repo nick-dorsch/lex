@@ -1,57 +1,59 @@
 <div class={"library-container #{if @show_profile_setup_modal, do: "profile-blocked", else: ""}"}>
-  <div class="library-header">
-    <h1>My Library</h1>
-    <div class="library-header-actions">
-      <div class="reader-word-counts">
-        <span><strong>R</strong> <%= @vocab_counts.read %></span>
-        <span><strong>L</strong> <%= @vocab_counts.learning %></span>
-        <span><strong>K</strong> <%= @vocab_counts.known %></span>
+  <div class="library-sticky-controls">
+    <div class="library-header">
+      <h1>My Library</h1>
+      <div class="library-header-actions">
+        <div class="reader-word-counts">
+          <span><strong>R</strong> <%= @vocab_counts.read %></span>
+          <span><strong>L</strong> <%= @vocab_counts.learning %></span>
+          <span><strong>K</strong> <%= @vocab_counts.known %></span>
+        </div>
+        <.link navigate={~p"/stats"} class="header-link-btn" aria-label="Stats" title="Stats">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 3v18h18"/>
+            <path d="M18 17V9"/>
+            <path d="M13 17V5"/>
+            <path d="M8 17v-3"/>
+          </svg>
+          <span class="sr-only">Stats</span>
+        </.link>
+        <button
+          class="refresh-btn"
+          phx-click="refresh_calibre"
+          disabled={@refreshing}
+          aria-label={if @refreshing, do: "Refreshing library", else: "Refresh library"}
+          title={if @refreshing, do: "Refreshing library", else: "Refresh library"}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={if @refreshing, do: "animate-spin", else: ""} aria-hidden="true">
+            <path d="M21 12a9 9 0 0 1-15.5 6.4"/>
+            <path d="M3 12A9 9 0 0 1 18.5 5.6"/>
+            <path d="M8 17H5v3"/>
+            <path d="M16 7h3V4"/>
+          </svg>
+          <span class="sr-only"><%= if @refreshing, do: "Refreshing library", else: "Refresh library" %></span>
+        </button>
       </div>
-      <.link navigate={~p"/stats"} class="header-link-btn" aria-label="Stats" title="Stats">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M3 3v18h18"/>
-          <path d="M18 17V9"/>
-          <path d="M13 17V5"/>
-          <path d="M8 17v-3"/>
-        </svg>
-        <span class="sr-only">Stats</span>
-      </.link>
+    </div>
+
+    <div class="library-filter-pills">
       <button
-        class="refresh-btn"
-        phx-click="refresh_calibre"
-        disabled={@refreshing}
-        aria-label={if @refreshing, do: "Refreshing library", else: "Refresh library"}
-        title={if @refreshing, do: "Refreshing library", else: "Refresh library"}
+        type="button"
+        class={"filter-pill #{if @filter_mode == :imported, do: "active", else: ""}"}
+        phx-click="toggle_imported_filter"
+        aria-pressed={if @filter_mode == :imported, do: "true", else: "false"}
       >
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={if @refreshing, do: "animate-spin", else: ""} aria-hidden="true">
-          <path d="M21 12a9 9 0 0 1-15.5 6.4"/>
-          <path d="M3 12A9 9 0 0 1 18.5 5.6"/>
-          <path d="M8 17H5v3"/>
-          <path d="M16 7h3V4"/>
-        </svg>
-        <span class="sr-only"><%= if @refreshing, do: "Refreshing library", else: "Refresh library" %></span>
+        IMPORTED
+      </button>
+
+      <button
+        type="button"
+        class={"filter-pill #{if @filter_mode == :in_progress, do: "active", else: ""}"}
+        phx-click="toggle_in_progress_filter"
+        aria-pressed={if @filter_mode == :in_progress, do: "true", else: "false"}
+      >
+        IN PROGRESS
       </button>
     </div>
-  </div>
-
-  <div class="library-filter-pills" style="text-align: right;">
-    <button
-      type="button"
-      class={"filter-pill #{if @filter_mode == :imported, do: "active", else: ""}"}
-      phx-click="toggle_imported_filter"
-      aria-pressed={if @filter_mode == :imported, do: "true", else: "false"}
-    >
-      IMPORTED
-    </button>
-
-    <button
-      type="button"
-      class={"filter-pill #{if @filter_mode == :in_progress, do: "active", else: ""}"}
-      phx-click="toggle_in_progress_filter"
-      aria-pressed={if @filter_mode == :in_progress, do: "true", else: "false"}
-    >
-      IN PROGRESS
-    </button>
   </div>
 
   <%= if Enum.empty?(@items) do %>

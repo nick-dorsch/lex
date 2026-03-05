@@ -155,6 +155,14 @@ defmodule LexWeb.StatsLive.Index do
       |> llm_response_by_token_sentence(user_id)
 
     Enum.map(learning_states, fn state ->
+      state =
+        Map.merge(state, %{
+          recent_document_title: nil,
+          recent_sentence: nil,
+          recent_token_surface: nil,
+          llm_response_text: nil
+        })
+
       case Map.get(recent_sentence_by_lexeme, state.lexeme_id) do
         nil ->
           state
