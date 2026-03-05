@@ -32,8 +32,10 @@ defmodule LexWeb.ReaderLive.Show do
          document_progress: document_progress,
          current_user: current_user
        }} ->
-        # Mark lexemes as seen and log enter event when sentence is displayed
-        if sentence do
+        # Mark lexemes as seen and log enter event when sentence is displayed.
+        # Only run side effects in connected mount to avoid double execution
+        # (disconnected + connected mount cycle).
+        if sentence && connected?(socket) do
           {:ok, _} = Vocab.mark_lexemes_seen(user_id, sentence.id)
 
           {:ok, _} =

@@ -314,8 +314,7 @@ defmodule Lex.Vocab.StateTransitionsTest do
       assert lexeme2.id in lexeme_ids
 
       assert Enum.all?(states, fn s -> s.status == "seen" end)
-      # Note: LiveView mounts twice in tests (static + connected), so seen_count may be 2
-      assert Enum.all?(states, fn s -> s.seen_count >= 1 end)
+      assert Enum.all?(states, fn s -> s.seen_count == 1 end)
     end
 
     test "repeated tokens in one sentence don't create duplicate state rows", %{conn: conn} do
@@ -341,8 +340,7 @@ defmodule Lex.Vocab.StateTransitionsTest do
       state = hd(states)
       assert state.lexeme_id == lexeme.id
       assert state.status == "seen"
-      # Note: LiveView mounts twice in tests (static + connected), so seen_count may be 2
-      assert state.seen_count >= 1
+      assert state.seen_count == 1
     end
 
     test "second view of same sentence doesn't increment seen_count twice", %{conn: conn} do
