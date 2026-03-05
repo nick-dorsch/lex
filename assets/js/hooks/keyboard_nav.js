@@ -64,8 +64,19 @@ export default {
     };
 
     this.handler = (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) {
+        return;
+      }
+
+      const target = e.target;
+      if (target && (target.closest('input, textarea, select') || target.isContentEditable)) {
+        return;
+      }
+
+      const isQuestionMark = e.key === '?' || (e.key === '/' && e.shiftKey);
       const keys = ['j', 'k', 'w', 'b', 'W', 'B', ' '];
-      if (keys.includes(e.key)) {
+
+      if (keys.includes(e.key) || isQuestionMark) {
         // Skip space key handling when LLM popup is visible (handled by LLMPopup hook)
         if (e.key === ' ' && this.isLLMPopupVisible()) {
           return;
@@ -85,7 +96,8 @@ export default {
           this.moveFocusOptimistically(e.key);
         }
 
-        this.pushEvent('key_nav', { key: e.key === ' ' ? 'space' : e.key });
+        const key = e.key === ' ' ? 'space' : isQuestionMark ? '?' : e.key;
+        this.pushEvent('key_nav', { key });
       }
     };
     window.addEventListener('keydown', this.handler);

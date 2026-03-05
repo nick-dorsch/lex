@@ -739,6 +739,16 @@
     background-color: rgba(123, 97, 73, 0.28);
   }
 
+  .help-btn {
+    background-color: rgba(102, 83, 64, 0.32);
+    color: var(--warm-text-subtle);
+  }
+
+  .help-btn:hover {
+    background-color: rgba(123, 97, 73, 0.42);
+    color: var(--warm-text);
+  }
+
   .reader-progress-bar {
     background-color: rgba(102, 83, 64, 0.85);
   }
@@ -877,6 +887,116 @@
 
   .btn-learning-active:hover {
     background-color: var(--warm-gold-soft);
+  }
+
+  /* Keyboard Help Popup */
+  .help-popup {
+    position: fixed;
+    right: 1rem;
+    bottom: 5.5rem;
+    width: 420px;
+    max-width: calc(100vw - 2rem);
+    max-height: min(70vh, 520px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background-color: var(--warm-bg);
+    border: 1px solid var(--warm-border);
+    border-radius: 12px;
+    z-index: 50;
+    animation: help-popup-fade-in 0.18s ease-out;
+  }
+
+  @keyframes help-popup-fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px) translateX(8px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0) translateX(0);
+    }
+  }
+
+  .help-popup-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.8rem 1rem;
+    border-bottom: 1px solid var(--warm-border);
+    background-color: var(--warm-surface-strong);
+  }
+
+  .help-popup-title {
+    color: var(--warm-text);
+    font-size: 0.95rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+
+  .help-popup-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--warm-text-muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .help-popup-close:hover {
+    background-color: rgba(123, 97, 73, 0.22);
+    color: var(--warm-text);
+  }
+
+  .help-popup-body {
+    overflow-y: auto;
+    padding: 1rem;
+    scrollbar-width: thin;
+    scrollbar-color: var(--warm-border) transparent;
+  }
+
+  .help-shortcuts-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem;
+  }
+
+  .help-shortcut {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.55rem 0.65rem;
+    border-radius: 8px;
+    background-color: rgba(102, 83, 64, 0.26);
+    color: var(--warm-text-muted);
+    font-size: 0.84rem;
+    line-height: 1.25;
+  }
+
+  .help-shortcut kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2rem;
+    padding: 0.2rem 0.45rem;
+    border-radius: 6px;
+    border: 1px solid var(--warm-border);
+    background-color: var(--warm-surface-strong);
+    color: var(--warm-text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+      "Courier New", monospace;
+    font-size: 0.72rem;
+    font-weight: 600;
+    line-height: 1;
   }
 
   /* LLM Popup */
@@ -1089,6 +1209,18 @@
 
   /* Mobile layout - popup below reading area */
   @media (max-width: 1024px) {
+    .help-popup {
+      left: 1rem;
+      right: 1rem;
+      bottom: 6rem;
+      width: auto;
+      max-height: 44vh;
+    }
+
+    .help-shortcuts-grid {
+      grid-template-columns: 1fr;
+    }
+
     .llm-popup {
       position: fixed;
       top: auto;

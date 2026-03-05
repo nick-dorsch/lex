@@ -64,6 +64,7 @@ defmodule LexWeb.ReaderLive.Show do
            help_requested: false,
            context_sentence_count: @context_sentence_count,
            vocab_counts: vocab_counts,
+           help_popup_visible: false,
            llm_popup_visible: false,
            llm_loading: false,
            llm_error: nil,
@@ -182,6 +183,11 @@ defmodule LexWeb.ReaderLive.Show do
   end
 
   @impl true
+  def handle_event("keydown", %{"key" => key}, socket) when key in ["?", "/", "¿"] do
+    toggle_help_popup(socket)
+  end
+
+  @impl true
   def handle_event("keydown", _params, socket) do
     {:noreply, socket}
   end
@@ -224,6 +230,16 @@ defmodule LexWeb.ReaderLive.Show do
   @impl true
   def handle_event("dismiss_llm_popup", _params, socket) do
     dismiss_llm_popup(socket)
+  end
+
+  @impl true
+  def handle_event("toggle_help_popup", _params, socket) do
+    toggle_help_popup(socket)
+  end
+
+  @impl true
+  def handle_event("dismiss_help_popup", _params, socket) do
+    dismiss_help_popup(socket)
   end
 
   # Handles navigation to next token (w key)
@@ -756,6 +772,20 @@ defmodule LexWeb.ReaderLive.Show do
        current_llm_request_id: nil,
        llm_loading: false
      )}
+  end
+
+  # Toggles the help popup visibility
+  defp toggle_help_popup(socket) do
+    {:noreply,
+     socket
+     |> assign(:help_popup_visible, not socket.assigns.help_popup_visible)}
+  end
+
+  # Dismisses the help popup
+  defp dismiss_help_popup(socket) do
+    {:noreply,
+     socket
+     |> assign(:help_popup_visible, false)}
   end
 
   # Starts a new LLM help request

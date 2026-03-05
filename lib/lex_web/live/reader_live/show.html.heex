@@ -1,4 +1,9 @@
-<div class="reader-container min-h-screen flex flex-col" phx-hook="KeyboardNav" id="reader-container">
+<div
+  class="reader-container min-h-screen flex flex-col"
+  phx-hook="KeyboardNav"
+  phx-window-keydown="keydown"
+  id="reader-container"
+>
   <%= if @loading do %>
       <div class="reader-loading flex-1 flex items-center justify-center">
         <p class="reader-hint text-lg">Loading...</p>
@@ -52,6 +57,59 @@
     <% end %>
 
     <%= if @sentence do %>
+        <!-- Help Popup -->
+        <%= if @help_popup_visible do %>
+          <div
+            class="help-popup"
+            data-testid="help-popup"
+            phx-click-away="dismiss_help_popup"
+          >
+            <div class="help-popup-header">
+              <span class="help-popup-title">Keyboard Shortcuts</span>
+              <button class="help-popup-close" phx-click="dismiss_help_popup" title="Close (?)">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
+            </div>
+
+            <div class="help-popup-body">
+              <div class="help-shortcuts-grid">
+                <div class="help-shortcut">
+                  <span>Next sentence</span>
+                  <kbd>j</kbd>
+                </div>
+                <div class="help-shortcut">
+                  <span>Previous sentence</span>
+                  <kbd>k</kbd>
+                </div>
+                <div class="help-shortcut">
+                  <span>Next word</span>
+                  <kbd>w</kbd>
+                </div>
+                <div class="help-shortcut">
+                  <span>Previous word</span>
+                  <kbd>b</kbd>
+                </div>
+                <div class="help-shortcut">
+                  <span>Next highlighted</span>
+                  <kbd>W</kbd>
+                </div>
+                <div class="help-shortcut">
+                  <span>Previous highlighted</span>
+                  <kbd>B</kbd>
+                </div>
+                <div class="help-shortcut">
+                  <span>Translate</span>
+                  <kbd>Space</kbd>
+                </div>
+                <div class="help-shortcut">
+                  <span>Toggle help</span>
+                  <kbd>?</kbd>
+                </div>
+              </div>
+            </div>
+          </div>
+        <% end %>
+
         <!-- LLM Help Popup -->
         <%= if @llm_popup_visible do %>
           <div
@@ -165,20 +223,30 @@
         <div class="reader-progress-bar w-[calc(100%+2rem)] -mx-4 h-px overflow-hidden">
           <div class="reader-progress-fill h-full transition-all duration-300 ease-out" style={"width: " <> to_string(@section_progress) <> "%"}></div>
         </div>
-        <div class="w-full reader-footer-row flex items-center justify-start gap-3 pt-2">
-          <div class="reader-footer-section"><%= @section.title || "Untitled Section" %></div>
-          <%= if @focused_token_index > 0 do %>
-            <% focused_token = Enum.at(@tokens, @focused_token_index - 1)
-               focused_lexeme_state = focused_token && Map.get(@lexeme_states, focused_token.lexeme_id)
-               is_learning = focused_lexeme_state && focused_lexeme_state.status == "learning"
-            %>
-            <button
-              class={if is_learning, do: "btn-learning-active px-4 py-2 rounded-lg font-medium transition-colors", else: "btn-learning px-4 py-2 rounded-lg font-medium transition-colors"}
-              phx-click="toggle_learning"
-            >
-              <%= if is_learning, do: "Mark Known", else: "Mark Learning" %>
-            </button>
-          <% end %>
+        <div class="w-full reader-footer-row flex items-center justify-between gap-3 pt-2">
+          <div class="flex items-center gap-3">
+            <div class="reader-footer-section"><%= @section.title || "Untitled Section" %></div>
+            <%= if @focused_token_index > 0 do %>
+              <% focused_token = Enum.at(@tokens, @focused_token_index - 1)
+                 focused_lexeme_state = focused_token && Map.get(@lexeme_states, focused_token.lexeme_id)
+                 is_learning = focused_lexeme_state && focused_lexeme_state.status == "learning"
+              %>
+              <button
+                class={if is_learning, do: "btn-learning-active px-4 py-2 rounded-lg font-medium transition-colors", else: "btn-learning px-4 py-2 rounded-lg font-medium transition-colors"}
+                phx-click="toggle_learning"
+              >
+                <%= if is_learning, do: "Mark Known", else: "Mark Learning" %>
+              </button>
+            <% end %>
+          </div>
+          <button
+            class="help-btn text-xs px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
+            phx-click="toggle_help_popup"
+            title="Show keyboard shortcuts (?)"
+          >
+            <span class="font-medium">?</span>
+            <span class="hidden sm:inline">Help</span>
+          </button>
         </div>
       </div>
     <% else %>
