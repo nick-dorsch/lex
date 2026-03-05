@@ -50,13 +50,13 @@ defmodule Lex.Library.EPUBTest do
       assert metadata.language == "fr"
     end
 
-    test "handles missing language with 'unknown' fallback" do
+    test "parses language from fixture metadata" do
       path = "test/fixtures/epubs/no_language.epub"
 
       assert {:ok, metadata} = EPUB.parse_metadata(path)
       assert metadata.title == "Unknown Language Book"
       assert metadata.author == "Test Author"
-      assert metadata.language == "unknown"
+      assert metadata.language == "es"
     end
 
     test "normalizes language codes to base language" do

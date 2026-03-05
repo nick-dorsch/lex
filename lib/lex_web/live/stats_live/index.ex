@@ -11,8 +11,10 @@ defmodule LexWeb.StatsLive.Index do
   alias Lex.Library.Section
   alias Lex.Reader.UserSentenceState
   alias Lex.Repo
+  alias Lex.Text.Token
   alias Lex.Text.Sentence
   alias Lex.Vocab
+  alias Lex.Vocab.LlmHelpRequest
   alias Lex.Vocab.UserLexemeState
 
   @chart_width 820
@@ -30,6 +32,7 @@ defmodule LexWeb.StatsLive.Index do
       if user_id, do: Vocab.get_status_counts(user_id), else: %{read: 0, learning: 0, known: 0}
 
     timeline = if user_id, do: load_timeline(user_id), else: []
+    learning_lexemes = if user_id, do: load_learning_lexemes(user_id), else: []
     books = if user_id, do: load_book_progress(user_id), else: %{in_progress: [], completed: []}
 
     chart = build_chart_series(timeline)
@@ -37,11 +40,27 @@ defmodule LexWeb.StatsLive.Index do
     {:ok,
      socket
      |> assign(:user_id, user_id)
+     |> assign(:expanded_learning_lexeme_id, nil)
      |> assign(:counts, counts)
      |> assign(:timeline, timeline)
+     |> assign(:learning_lexemes, learning_lexemes)
      |> assign(:chart, chart)
      |> assign(:books_in_progress, books.in_progress)
      |> assign(:books_completed, books.completed)}
+  end
+
+  @impl true
+  def handle_event("toggle_learning_row", %{"lexeme-id" => lexeme_id}, socket) do
+    lexeme_id = String.to_integer(lexeme_id)
+
+    expanded_learning_lexeme_id =
+      if socket.assigns.expanded_learning_lexeme_id == lexeme_id do
+        nil
+      else
+        lexeme_id
+      end
+
+    {:noreply, assign(socket, :expanded_learning_lexeme_id, expanded_learning_lexeme_id)}
   end
 
   defp get_user_id(socket) do
@@ -76,7 +95,23 @@ defmodule LexWeb.StatsLive.Index do
         {[point | acc], next}
       end)
 
-    Enum.reverse(timeline)
+    timeline
+    |> Enum.reverse()
+    |> prepend_zero_start()
+  end
+
+  defp prepend_zero_start([]), do: []
+
+  defp prepend_zero_start([first_point | _] = timeline) do
+    [%{hour: previous_hour_bucket(first_point.hour), read: 0, learning: 0, known: 0} | timeline]
+  end
+
+  defp previous_hour_bucket(hourly_bucket) do
+    hourly_bucket
+    |> String.replace(" ", "T")
+    |> NaiveDateTime.from_iso8601!()
+    |> NaiveDateTime.add(-3600, :second)
+    |> Calendar.strftime("%Y-%m-%d %H:00:00")
   end
 
   defp count_lexemes_per_hour(user_id, timestamp_field) do
@@ -92,6 +127,138 @@ defmodule LexWeb.StatsLive.Index do
     )
     |> Repo.all()
     |> Map.new()
+  end
+
+  defp load_learning_lexemes(user_id) do
+    learning_states =
+      UserLexemeState
+      |> join(:inner, [uls], lex in assoc(uls, :lexeme))
+      |> where([uls, _lex], uls.user_id == ^user_id and uls.status == "learning")
+      |> order_by([uls, _lex], desc: uls.seen_count, desc: uls.id)
+      |> limit(100)
+      |> select([uls, lex], %{
+        lexeme_id: uls.lexeme_id,
+        normalized_lemma: lex.normalized_lemma,
+        seen_count: uls.seen_count,
+        first_seen_at: uls.first_seen_at
+      })
+      |> Repo.all()
+
+    recent_sentence_by_lexeme =
+      learning_states
+      |> Enum.map(& &1.lexeme_id)
+      |> recent_sentence_by_lexeme(user_id)
+
+    llm_response_by_token_sentence =
+      recent_sentence_by_lexeme
+      |> Map.values()
+      |> llm_response_by_token_sentence(user_id)
+
+    Enum.map(learning_states, fn state ->
+      case Map.get(recent_sentence_by_lexeme, state.lexeme_id) do
+        nil ->
+          state
+
+        %{
+          sentence: sentence,
+          token_surface: token_surface,
+          sentence_id: sentence_id,
+          token_id: token_id,
+          document_title: document_title
+        } ->
+          state
+          |> Map.put(:recent_document_title, document_title)
+          |> Map.put(:recent_sentence, sentence)
+          |> Map.put(:recent_token_surface, token_surface)
+          |> Map.put(
+            :llm_response_text,
+            Map.get(llm_response_by_token_sentence, {sentence_id, token_id})
+          )
+      end
+    end)
+  end
+
+  defp recent_sentence_by_lexeme([], _user_id), do: %{}
+
+  defp recent_sentence_by_lexeme(lexeme_ids, user_id) do
+    Token
+    |> join(:inner, [t], uss in UserSentenceState, on: uss.sentence_id == t.sentence_id)
+    |> join(:inner, [t, _uss], s in Sentence, on: s.id == t.sentence_id)
+    |> join(:inner, [_t, _uss, s], sec in Section, on: sec.id == s.section_id)
+    |> join(:inner, [_t, _uss, _s, sec], doc in Document, on: doc.id == sec.document_id)
+    |> where(
+      [t, uss, _s, _sec, _doc],
+      uss.user_id == ^user_id and uss.status == "read" and t.lexeme_id in ^lexeme_ids
+    )
+    |> order_by([_t, uss, s, _sec, _doc], desc: uss.read_at, desc: s.id)
+    |> select([t, _uss, s, _sec, doc], {t.lexeme_id, s.id, s.text, t.id, t.surface, doc.title})
+    |> Repo.all()
+    |> Enum.reduce(%{}, fn
+      {lexeme_id, sentence_id, sentence_text, token_id, token_surface, document_title}, acc ->
+        Map.put_new(acc, lexeme_id, %{
+          sentence_id: sentence_id,
+          sentence: sentence_text,
+          token_id: token_id,
+          token_surface: token_surface,
+          document_title: document_title
+        })
+    end)
+  end
+
+  defp llm_response_by_token_sentence([], _user_id), do: %{}
+
+  defp llm_response_by_token_sentence(recent_entries, user_id) do
+    token_ids = Enum.map(recent_entries, & &1.token_id)
+
+    LlmHelpRequest
+    |> where(
+      [r],
+      r.user_id == ^user_id and r.token_id in ^token_ids and not is_nil(r.response_text)
+    )
+    |> order_by([r], desc: r.inserted_at)
+    |> select([r], {r.sentence_id, r.token_id, r.response_text})
+    |> Repo.all()
+    |> Enum.reduce(%{}, fn {sentence_id, token_id, response_text}, acc ->
+      Map.put_new(acc, {sentence_id, token_id}, response_text)
+    end)
+  end
+
+  defp highlight_sentence_token(nil, _token_surface), do: "-"
+  defp highlight_sentence_token(sentence, nil), do: sentence
+  defp highlight_sentence_token(sentence, ""), do: sentence
+
+  defp highlight_sentence_token(sentence, token_surface) do
+    regex = ~r/#{Regex.escape(token_surface)}/i
+
+    case Regex.run(regex, sentence, return: :index) do
+      [{start, length}] ->
+        prefix = binary_part(sentence, 0, start)
+        token = binary_part(sentence, start, length)
+        suffix = binary_part(sentence, start + length, byte_size(sentence) - start - length)
+
+        escaped_prefix = prefix |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
+        escaped_token = token |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
+        escaped_suffix = suffix |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
+
+        Phoenix.HTML.raw(
+          escaped_prefix <>
+            "<span class=\"lemma-highlight\">" <>
+            escaped_token <>
+            "</span>" <>
+            escaped_suffix
+        )
+
+      _ ->
+        sentence
+    end
+  end
+
+  defp render_markdown_html(content) when content in [nil, ""], do: ""
+
+  defp render_markdown_html(content) when is_binary(content) do
+    content
+    |> Earmark.as_html!()
+    |> HtmlSanitizeEx.basic_html()
   end
 
   defp load_book_progress(user_id) do
@@ -171,6 +338,7 @@ defmodule LexWeb.StatsLive.Index do
       |> Enum.flat_map(fn point -> [point.read, point.learning, point.known] end)
 
     max_value = Enum.max([1 | values])
+    y_axis = y_axis_scale(max_value)
     width = @chart_width - @chart_padding_left - @chart_padding_right
     height = @chart_height - @chart_padding_top - @chart_padding_bottom
 
@@ -178,24 +346,24 @@ defmodule LexWeb.StatsLive.Index do
       timeline
       |> Enum.with_index()
       |> Enum.map(fn {point, index} ->
-        {point_x(index, length(timeline), width), point_y(point.read, max_value, height)}
+        {point_x(index, length(timeline), width), point_y(point.read, y_axis.max, height)}
       end)
 
     learning_points =
       timeline
       |> Enum.with_index()
       |> Enum.map(fn {point, index} ->
-        {point_x(index, length(timeline), width), point_y(point.learning, max_value, height)}
+        {point_x(index, length(timeline), width), point_y(point.learning, y_axis.max, height)}
       end)
 
     known_points =
       timeline
       |> Enum.with_index()
       |> Enum.map(fn {point, index} ->
-        {point_x(index, length(timeline), width), point_y(point.known, max_value, height)}
+        {point_x(index, length(timeline), width), point_y(point.known, y_axis.max, height)}
       end)
 
-    %{grid_lines: grid_lines(max_value, height), labels: edge_labels(timeline)}
+    %{grid_lines: grid_lines(y_axis, height), labels: edge_labels(timeline)}
     |> Map.put(:read, as_svg_points(read_points))
     |> Map.put(:learning, as_svg_points(learning_points))
     |> Map.put(:known, as_svg_points(known_points))
@@ -221,12 +389,49 @@ defmodule LexWeb.StatsLive.Index do
   defp round_svg_coord(value) when is_integer(value), do: (value * 1.0) |> Float.round(2)
   defp round_svg_coord(value) when is_float(value), do: Float.round(value, 2)
 
-  defp grid_lines(max_value, height) do
-    for step <- 0..4 do
-      ratio = step / 4
-      value = round(max_value * ratio)
+  defp grid_lines(y_axis, height) do
+    for value <- y_axis.max..0//-y_axis.step do
+      ratio = value / y_axis.max
       y = @chart_padding_top + (height - ratio * height)
       %{value: value, y: Float.round(y, 2)}
+    end
+  end
+
+  defp y_axis_scale(max_value) do
+    step = dynamic_tick_step(max_value)
+    %{step: step, max: round_up(max_value, step)}
+  end
+
+  defp dynamic_tick_step(max_value) when max_value <= 10, do: 1
+
+  defp dynamic_tick_step(max_value) do
+    desired_tick_count = 6
+    raw_step = max_value / (desired_tick_count - 1)
+    nice_step(raw_step)
+  end
+
+  defp nice_step(value) do
+    magnitude = :math.pow(10, :math.floor(:math.log10(value)))
+    normalized = value / magnitude
+
+    multiplier =
+      cond do
+        normalized <= 1 -> 1
+        normalized <= 2 -> 2
+        normalized <= 5 -> 5
+        true -> 10
+      end
+
+    round(multiplier * magnitude)
+  end
+
+  defp round_up(value, modulus) do
+    remainder = rem(value, modulus)
+
+    if remainder == 0 do
+      value
+    else
+      value + modulus - remainder
     end
   end
 

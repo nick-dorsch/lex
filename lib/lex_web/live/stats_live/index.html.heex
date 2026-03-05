@@ -83,4 +83,68 @@
       <% end %>
     </div>
   </div>
+
+  <div class="stats-learning-panel">
+    <h2>Currently Learning</h2>
+    <%= if Enum.empty?(@learning_lexemes) do %>
+      <p class="stats-empty">No learning words yet.</p>
+    <% else %>
+      <div class="stats-learning-table-wrap">
+        <% learning_table_headers = ["Lemma", "Seen Count", "Document", "Most Recent Sentence", "First Seen"] %>
+        <table class="stats-learning-table">
+          <thead>
+            <tr>
+              <%= for header <- learning_table_headers do %>
+                <th><%= header %></th>
+              <% end %>
+            </tr>
+          </thead>
+          <tbody>
+            <%= for item <- @learning_lexemes do %>
+              <tr
+                class="learning-row"
+                phx-click="toggle_learning_row"
+                phx-value-lexeme-id={item.lexeme_id}
+              >
+                <td><%= item.normalized_lemma %></td>
+                <td><%= item.seen_count %></td>
+                <td><%= item.recent_document_title || "-" %></td>
+                <td>
+                  <div class="sentence-cell">
+                    <span class={[
+                      "chevron",
+                      @expanded_learning_lexeme_id == item.lexeme_id && "expanded"
+                    ]}>
+                      ▸
+                    </span>
+                    <span><%= highlight_sentence_token(item.recent_sentence, item.recent_token_surface) %></span>
+                  </div>
+                </td>
+                <td>
+                  <%= if item.first_seen_at do %>
+                    <%= Calendar.strftime(item.first_seen_at, "%m/%d/%Y") %>
+                  <% else %>
+                    -
+                  <% end %>
+                </td>
+              </tr>
+
+              <%= if @expanded_learning_lexeme_id == item.lexeme_id and item.llm_response_text do %>
+                <tr class="learning-response-row">
+                  <td colspan={length(learning_table_headers)}>
+                    <div class="learning-response-content">
+                      <div class="learning-response-lemma">
+                        <span class="response-lemma-highlight text-2xl sm:text-3xl md:text-4xl leading-none font-medium"><%= item.normalized_lemma %></span>
+                      </div>
+                      <%= raw(render_markdown_html(item.llm_response_text)) %>
+                    </div>
+                  </td>
+                </tr>
+              <% end %>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    <% end %>
+  </div>
 </div>

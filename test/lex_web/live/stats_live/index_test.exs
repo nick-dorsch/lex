@@ -20,7 +20,7 @@ defmodule LexWeb.StatsLive.IndexTest do
 
       {:ok, _view, html} = live(conn, "/stats")
 
-      assert html =~ "Cumulative Vocabulary Timeline"
+      assert html =~ "Reading Timeline"
       assert html =~ "Vocabulary growth chart"
       assert html =~ "Words Read"
       assert html =~ ">1<"
@@ -77,7 +77,7 @@ defmodule LexWeb.StatsLive.IndexTest do
       assert html =~ "Words Known"
       assert html =~ ">3<"
       assert html =~ ">1<"
-      assert html =~ "Cumulative Vocabulary Timeline"
+      assert html =~ "Reading Timeline"
       assert html =~ "Vocabulary growth chart"
 
       assert html =~ "In Progress"

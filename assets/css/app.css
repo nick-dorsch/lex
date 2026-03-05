@@ -147,10 +147,15 @@
   }
 
   .stats-chart-panel,
+  .stats-learning-panel,
   .stats-books-panel {
     @apply p-2;
     background-color: transparent;
     border: none;
+  }
+
+  .stats-learning-panel {
+    @apply mt-6;
   }
 
   .stats-chart-header {
@@ -164,8 +169,105 @@
   }
 
   .stats-chart-header h2,
+  .stats-learning-panel h2,
   .stats-books-panel h2 {
     @apply text-lg font-semibold;
+    color: var(--warm-text);
+  }
+
+  .stats-learning-table-wrap {
+    @apply mt-3 overflow-x-auto;
+  }
+
+  .stats-learning-table {
+    @apply w-full text-left;
+    border-collapse: collapse;
+  }
+
+  .stats-learning-table th,
+  .stats-learning-table td {
+    @apply py-2 align-top;
+    border-bottom: 1px solid rgba(213, 194, 166, 0.14);
+  }
+
+  .stats-learning-table th {
+    @apply text-xs uppercase tracking-wider;
+    color: var(--warm-text-subtle);
+  }
+
+  .stats-learning-table td {
+    @apply text-sm pr-4;
+    color: var(--warm-text);
+  }
+
+  .stats-learning-table td:first-child {
+    @apply pr-6;
+    color: var(--warm-text-muted);
+    white-space: nowrap;
+  }
+
+  .stats-learning-table th:nth-child(3),
+  .stats-learning-table td:nth-child(3) {
+    min-width: 15rem;
+  }
+
+  .learning-row {
+    cursor: pointer;
+  }
+
+  .learning-row:hover {
+    background-color: rgba(213, 194, 166, 0.08);
+  }
+
+  .sentence-cell {
+    @apply flex items-start gap-2;
+  }
+
+  .chevron {
+    @apply inline-block;
+    color: var(--warm-text-subtle);
+    transition: transform 0.15s ease;
+  }
+
+  .chevron.expanded {
+    transform: rotate(90deg);
+  }
+
+  .learning-response-row td {
+    @apply py-2;
+    background-color: transparent;
+    border-left: 1px solid rgba(213, 194, 166, 0.14);
+    border-right: 1px solid rgba(213, 194, 166, 0.14);
+  }
+
+  .learning-response-content {
+    @apply text-base px-4 py-3;
+    color: var(--warm-text);
+    white-space: pre-wrap;
+  }
+
+  .learning-response-lemma {
+    margin: 0 0 0.6rem 0;
+    padding-bottom: 0.5rem;
+    line-height: 1;
+    text-align: center;
+    border-bottom: 1px solid rgba(213, 194, 166, 0.18);
+  }
+
+  .response-lemma-highlight {
+    display: inline;
+    padding: 0;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+    vertical-align: baseline;
+    border-radius: 0.2rem;
+    background-color: rgba(245, 158, 11, 0.22);
+    color: var(--warm-text);
+  }
+
+  .lemma-highlight {
+    @apply px-1 rounded;
+    background-color: rgba(245, 158, 11, 0.22);
     color: var(--warm-text);
   }
 

@@ -703,8 +703,8 @@ defmodule LexWeb.ReaderLive.ShowTest do
 
       # Get token class before space press
       current_sentence_html = view |> element(".current-sentence") |> render()
-      # Token should have unseen class initially (seen status from mount)
-      assert current_sentence_html =~ "token-unseen"
+      # Token starts with default status styling
+      assert current_sentence_html =~ "token-default"
 
       # Press space to set learning and open popup
       _html = render_hook(view, "key_nav", %{"key" => "space"})

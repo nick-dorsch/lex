@@ -307,7 +307,7 @@ defmodule LexWeb.LibraryLive.IndexTest do
       {:ok, view, _html} = live(conn, "/library")
 
       # Click refresh button
-      html = view |> element("button", "Refresh Library") |> render_click()
+      html = view |> element("button[phx-click='refresh_calibre']") |> render_click()
 
       assert html =~ "My Library"
     end
@@ -316,11 +316,11 @@ defmodule LexWeb.LibraryLive.IndexTest do
       {:ok, view, _html} = live(conn, "/library")
 
       # First click should work
-      view |> element("button", "Refresh Library") |> render_click()
+      view |> element("button[phx-click='refresh_calibre']") |> render_click()
 
       # Button should now be disabled
       html = render(view)
-      assert html =~ "Refreshing..."
+      assert html =~ "Refreshing library"
       assert html =~ "disabled"
     end
 
@@ -328,16 +328,16 @@ defmodule LexWeb.LibraryLive.IndexTest do
       {:ok, view, _html} = live(conn, "/library")
 
       # First click enables debounce
-      view |> element("button", "Refresh Library") |> render_click()
+      view |> element("button[phx-click='refresh_calibre']") |> render_click()
       html = render(view)
-      assert html =~ "Refreshing..."
+      assert html =~ "Refreshing library"
 
       # Send the clear debounce message directly
       send(view.pid, :clear_refresh_debounce)
 
       # Button should be enabled again
       html = render(view)
-      assert html =~ "Refresh Library"
+      assert html =~ "Refresh library"
       refute html =~ "disabled"
     end
   end
@@ -351,7 +351,7 @@ defmodule LexWeb.LibraryLive.IndexTest do
       # (it will mark as importing via PubSub)
       html =
         view
-        |> element("button", "Refresh Library")
+        |> element("button[phx-click='refresh_calibre']")
         |> render_click()
 
       assert html =~ "My Library"
@@ -404,13 +404,13 @@ defmodule LexWeb.LibraryLive.IndexTest do
       {:ok, view, _html} = live(conn, "/library")
 
       # Enable debounce
-      view |> element("button", "Refresh Library") |> render_click()
+      view |> element("button[phx-click='refresh_calibre']") |> render_click()
 
       # Send clear message
       send(view.pid, :clear_refresh_debounce)
 
       html = render(view)
-      assert html =~ "Refresh Library"
+      assert html =~ "Refresh library"
       refute html =~ "disabled"
     end
   end

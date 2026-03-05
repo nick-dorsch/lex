@@ -201,15 +201,14 @@ defmodule Lex.Library.CalibreScannerTest do
       assert book.author == "Unknown"
     end
 
-    test "handles EPUBs with missing language", %{temp_dir: temp_dir} do
+    test "parses language from EPUB metadata", %{temp_dir: temp_dir} do
       source_epub = "test/fixtures/epubs/no_language.epub"
       dest_epub = Path.join(temp_dir, "no_language.epub")
       File.cp!(source_epub, dest_epub)
 
       assert {:ok, [book]} = CalibreScanner.scan()
 
-      # Should fallback to "unknown"
-      assert book.language == "unknown"
+      assert book.language == "es"
     end
 
     test "handles invalid EPUB files with error status", %{temp_dir: temp_dir} do
