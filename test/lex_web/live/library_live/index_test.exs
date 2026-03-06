@@ -471,6 +471,26 @@ defmodule LexWeb.LibraryLive.IndexTest do
       assert has_element?(view, ".library-author-section", "Zeta")
     end
 
+    test "can toggle author grouping off and keep author-title ordering", %{conn: conn} do
+      user = create_user()
+
+      create_document_with_title_and_author(user, "Zeta", "Author A")
+      create_document_with_title_and_author(user, "Alpha", "Author B")
+      create_document_with_title_and_author(user, "Beta", "Author A")
+
+      {:ok, view, _html} = live(conn, "/library")
+
+      assert has_element?(view, ".library-author-name", "Author A")
+      assert has_element?(view, ".library-author-name", "Author B")
+
+      _html = view |> element("button[phx-click='toggle_author_grouping']") |> render_click()
+
+      refute has_element?(view, ".library-author-name")
+
+      html = render(view)
+      assert html =~ ~r/Beta.*Zeta.*Alpha/s
+    end
+
     test "shows known and unknown language badges for importable Calibre books", %{conn: conn} do
       temp_root = "/tmp/lex_library_live_languages_#{System.unique_integer([:positive])}"
       known_book_dir = Path.join(temp_root, "Known Author/Known Book")

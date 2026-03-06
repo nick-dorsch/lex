@@ -51,6 +51,7 @@ defmodule LexWeb.LibraryLive.Index do
      |> assign(:refreshing, false)
      |> assign(:pending_import_file_path, nil)
      |> assign(:filter_mode, :all)
+     |> assign(:group_by_author, true)
      |> assign_profile_setup_state(user_id)}
   end
 
@@ -196,6 +197,11 @@ defmodule LexWeb.LibraryLive.Index do
   def handle_event("toggle_in_progress_filter", _params, socket) do
     new_mode = if socket.assigns.filter_mode == :in_progress, do: :all, else: :in_progress
     {:noreply, assign(socket, :filter_mode, new_mode)}
+  end
+
+  @impl true
+  def handle_event("toggle_author_grouping", _params, socket) do
+    {:noreply, assign(socket, :group_by_author, not socket.assigns.group_by_author)}
   end
 
   @impl true
@@ -695,32 +701,33 @@ defmodule LexWeb.LibraryLive.Index do
     end
   end
 
-  defp items_by_author(items, :all), do: items_by_author(items)
+  defp filtered_items(items, :all), do: items
 
-  defp items_by_author(items, :imported) do
+  defp filtered_items(items, :imported), do: Enum.filter(items, &(&1.import_status == :imported))
+
+  defp filtered_items(items, :in_progress), do: Enum.filter(items, &in_progress?/1)
+
+  defp items_by_author(items, filter_mode) do
     items
-    |> Enum.filter(&(&1.import_status == :imported))
-    |> items_by_author()
-  end
-
-  defp items_by_author(items, :in_progress) do
-    items
-    |> Enum.filter(&in_progress?/1)
-    |> items_by_author()
-  end
-
-  defp in_progress?(item) do
-    item.import_status == :imported and not is_nil(item.progress) and item.progress > 0 and
-      item.progress < 100
-  end
-
-  defp items_by_author(items) do
-    items
+    |> filtered_items(filter_mode)
     |> Enum.group_by(&author_group_name/1)
     |> Enum.sort_by(fn {author, _items} -> String.downcase(author) end)
     |> Enum.map(fn {author, author_items} ->
       {author, Enum.sort_by(author_items, &String.downcase(&1.title || ""))}
     end)
+  end
+
+  defp sorted_items(items, filter_mode) do
+    items
+    |> filtered_items(filter_mode)
+    |> Enum.sort_by(fn item ->
+      {String.downcase(author_group_name(item)), String.downcase(item.title || "")}
+    end)
+  end
+
+  defp in_progress?(item) do
+    item.import_status == :imported and not is_nil(item.progress) and item.progress > 0 and
+      item.progress < 100
   end
 
   defp author_group_name(%{author: author}) when is_binary(author) do

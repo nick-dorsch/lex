@@ -53,6 +53,15 @@
       >
         IN PROGRESS
       </button>
+
+      <button
+        type="button"
+        class={"filter-pill #{if @group_by_author, do: "active", else: ""}"}
+        phx-click="toggle_author_grouping"
+        aria-pressed={if @group_by_author, do: "true", else: "false"}
+      >
+        BY AUTHOR
+      </button>
     </div>
   </div>
 
@@ -66,9 +75,14 @@
       <% end %>
     </div>
   <% else %>
-    <%= for {author, author_items} <- items_by_author(@items, @filter_mode) do %>
+    <% organized_items =
+      if @group_by_author,
+        do: items_by_author(@items, @filter_mode),
+        else: [{nil, sorted_items(@items, @filter_mode)}] %>
+
+    <%= for {author, author_items} <- organized_items do %>
       <section class="library-author-section">
-        <div class="library-author-header">
+        <div :if={author} class="library-author-header">
           <h2 class="library-author-name"><%= author %></h2>
           <div class="library-author-divider" aria-hidden="true"></div>
         </div>
