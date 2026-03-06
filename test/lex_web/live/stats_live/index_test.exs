@@ -21,7 +21,7 @@ defmodule LexWeb.StatsLive.IndexTest do
 
       {:ok, _view, html} = live(conn, "/stats")
 
-      assert html =~ "Lexemes Timeline"
+      assert html =~ "Reading Timeline"
       assert html =~ "Lexeme growth chart"
       assert html =~ "Words - Read"
       assert html =~ "Lex. - Read"
@@ -79,7 +79,7 @@ defmodule LexWeb.StatsLive.IndexTest do
 
       {:ok, _view, html} = live(conn, "/stats")
 
-      assert html =~ "Stats"
+      assert html =~ "Statistics"
       assert html =~ "Library"
       assert html =~ "Words - Read"
       assert html =~ "Lex. - Read"
@@ -88,7 +88,7 @@ defmodule LexWeb.StatsLive.IndexTest do
       assert html =~ ">10<"
       assert html =~ ">2<"
       assert html =~ ">1<"
-      assert html =~ "Lexemes Timeline"
+      assert html =~ "Reading Timeline"
       assert html =~ "Lexeme growth chart"
 
       assert html =~ "In Progress"
@@ -109,6 +109,43 @@ defmodule LexWeb.StatsLive.IndexTest do
       assert html =~ "No books in progress."
       assert html =~ "No books completed yet."
       assert html =~ ">0<"
+    end
+
+    test "toggles chart series from legend and rescales y axis", %{conn: conn} do
+      user = create_user()
+
+      create_lexeme_state(user, "known", ~U[2026-01-05 12:00:00Z], nil, ~U[2026-01-06 12:00:00Z])
+
+      doc = create_document(user, "Words Heavy")
+      section = create_section(doc)
+      sentence = create_sentence(section, 1)
+
+      mark_sentence_read(user, sentence)
+
+      create_sentence_tokens(
+        sentence,
+        Enum.map(1..30, fn idx -> "word#{idx}" end)
+      )
+
+      {:ok, view, html} = live(conn, "/stats")
+
+      assert html =~ "class=\"grid-label\">30<"
+      assert has_element?(view, ".stats-chart .series.words-read")
+      refute has_element?(view, ".stats-legend .legend-toggle[phx-value-series='learning']")
+      refute has_element?(view, ".stats-legend .legend-toggle[phx-value-series='known']")
+
+      view
+      |> element(".stats-legend .legend-toggle[phx-value-series='words-read']")
+      |> render_click()
+
+      refute has_element?(view, ".stats-chart .series.words-read")
+      refute render(view) =~ "class=\"grid-label\">30<"
+      assert render(view) =~ "class=\"grid-label\">1<"
+
+      assert has_element?(
+               view,
+               ".stats-legend .legend-toggle.is-hidden[phx-value-series='words-read']"
+             )
     end
   end
 

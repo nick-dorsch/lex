@@ -32,7 +32,15 @@
       <div class="stats-legend">
         <span><i class="legend-dot learning"></i>Learning</span>
         <span><i class="legend-dot known"></i>Known</span>
-        <span><i class="legend-dot words-read"></i>Words Read</span>
+        <button
+          type="button"
+          class={["legend-toggle", !@visible_series.words_read && "is-hidden"]}
+          phx-click="toggle_chart_series"
+          phx-value-series="words-read"
+          aria-pressed={to_string(@visible_series.words_read)}
+        >
+          <i class="legend-dot words-read"></i>Words Read
+        </button>
       </div>
     </div>
 
@@ -45,12 +53,25 @@
           <text x="8" y={line.y + 4} class="grid-label"><%= line.value %></text>
         <% end %>
 
-        <polygon points={@chart.known_area} class="series-area known" />
-        <polygon points={@chart.learning_area} class="series-area learning" />
+        <%= if @visible_series.known do %>
+          <polygon points={@chart.known_area} class="series-area known" />
+        <% end %>
 
-        <polyline points={@chart.known} class="series known" />
-        <polyline points={@chart.learning} class="series learning" />
-        <polyline points={@chart.words_read} class="series words-read" />
+        <%= if @visible_series.learning and @visible_series.known do %>
+          <polygon points={@chart.learning_area} class="series-area learning" />
+        <% end %>
+
+        <%= if @visible_series.known do %>
+          <polyline points={@chart.known} class="series known" />
+        <% end %>
+
+        <%= if @visible_series.learning do %>
+          <polyline points={@chart.learning} class="series learning" />
+        <% end %>
+
+        <%= if @visible_series.words_read do %>
+          <polyline points={@chart.words_read} class="series words-read" />
+        <% end %>
 
         <%= for tick <- @chart.x_ticks do %>
           <text x={tick.x} y="302" text-anchor={tick.anchor} class="axis-label"><%= tick.label %></text>

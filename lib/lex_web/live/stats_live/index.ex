@@ -27,6 +27,7 @@ defmodule LexWeb.StatsLive.Index do
   @impl true
   def mount(_params, _session, socket) do
     user_id = get_user_id(socket)
+    visible_series = default_visible_series()
 
     counts =
       if user_id do
@@ -43,7 +44,7 @@ defmodule LexWeb.StatsLive.Index do
     learning_lexemes = if user_id, do: load_learning_lexemes(user_id), else: []
     books = if user_id, do: load_book_progress(user_id), else: %{in_progress: [], completed: []}
 
-    chart = build_chart_series(timeline)
+    chart = build_chart_series(timeline, visible_series)
 
     {:ok,
      socket
@@ -51,6 +52,7 @@ defmodule LexWeb.StatsLive.Index do
      |> assign(:expanded_learning_lexeme_id, nil)
      |> assign(:counts, counts)
      |> assign(:timeline, timeline)
+     |> assign(:visible_series, visible_series)
      |> assign(:learning_lexemes, learning_lexemes)
      |> assign(:chart, chart)
      |> assign(:books_in_progress, books.in_progress)
@@ -69,6 +71,17 @@ defmodule LexWeb.StatsLive.Index do
       end
 
     {:noreply, assign(socket, :expanded_learning_lexeme_id, expanded_learning_lexeme_id)}
+  end
+
+  @impl true
+  def handle_event("toggle_chart_series", %{"series" => series}, socket) do
+    visible_series = toggle_series_visibility(socket.assigns.visible_series, series)
+    chart = build_chart_series(socket.assigns.timeline, visible_series)
+
+    {:noreply,
+     socket
+     |> assign(:visible_series, visible_series)
+     |> assign(:chart, chart)}
   end
 
   defp get_user_id(socket) do
@@ -438,7 +451,7 @@ defmodule LexWeb.StatsLive.Index do
     |> Map.new()
   end
 
-  defp build_chart_series([]) do
+  defp build_chart_series([], _visible_series) do
     %{
       grid_lines: [],
       learning: "",
@@ -450,10 +463,8 @@ defmodule LexWeb.StatsLive.Index do
     }
   end
 
-  defp build_chart_series(timeline) do
-    values =
-      timeline
-      |> Enum.flat_map(fn point -> [point.known + point.learning, point.words_read] end)
+  defp build_chart_series(timeline, visible_series) do
+    values = visible_series_values(timeline, visible_series)
 
     max_value = Enum.max([1 | values])
     y_axis = y_axis_scale(max_value)
@@ -461,26 +472,38 @@ defmodule LexWeb.StatsLive.Index do
     height = @chart_height - @chart_padding_top - @chart_padding_bottom
 
     learning_points =
-      timeline
-      |> Enum.with_index()
-      |> Enum.map(fn {point, index} ->
-        stacked_learning = point.known + point.learning
-        {point_x(index, length(timeline), width), point_y(stacked_learning, y_axis.max, height)}
-      end)
+      if visible_series.learning do
+        timeline
+        |> Enum.with_index()
+        |> Enum.map(fn {point, index} ->
+          stacked_learning = point.known + point.learning
+          {point_x(index, length(timeline), width), point_y(stacked_learning, y_axis.max, height)}
+        end)
+      else
+        []
+      end
 
     known_points =
-      timeline
-      |> Enum.with_index()
-      |> Enum.map(fn {point, index} ->
-        {point_x(index, length(timeline), width), point_y(point.known, y_axis.max, height)}
-      end)
+      if visible_series.known do
+        timeline
+        |> Enum.with_index()
+        |> Enum.map(fn {point, index} ->
+          {point_x(index, length(timeline), width), point_y(point.known, y_axis.max, height)}
+        end)
+      else
+        []
+      end
 
     words_read_points =
-      timeline
-      |> Enum.with_index()
-      |> Enum.map(fn {point, index} ->
-        {point_x(index, length(timeline), width), point_y(point.words_read, y_axis.max, height)}
-      end)
+      if visible_series.words_read do
+        timeline
+        |> Enum.with_index()
+        |> Enum.map(fn {point, index} ->
+          {point_x(index, length(timeline), width), point_y(point.words_read, y_axis.max, height)}
+        end)
+      else
+        []
+      end
 
     baseline_points =
       timeline
@@ -495,10 +518,49 @@ defmodule LexWeb.StatsLive.Index do
       learning: as_svg_points(learning_points),
       known: as_svg_points(known_points),
       words_read: as_svg_points(words_read_points),
-      known_area: as_svg_area_between(known_points, baseline_points),
-      learning_area: as_svg_area_between(learning_points, known_points)
+      known_area:
+        if(visible_series.known,
+          do: as_svg_area_between(known_points, baseline_points),
+          else: ""
+        ),
+      learning_area:
+        if(visible_series.learning and visible_series.known,
+          do: as_svg_area_between(learning_points, known_points),
+          else: ""
+        )
     }
   end
+
+  defp default_visible_series do
+    %{learning: true, known: true, words_read: true}
+  end
+
+  defp visible_series_values(timeline, visible_series) do
+    timeline
+    |> Enum.flat_map(fn point ->
+      []
+      |> maybe_append_value(visible_series.learning, point.known + point.learning)
+      |> maybe_append_value(visible_series.known, point.known)
+      |> maybe_append_value(visible_series.words_read, point.words_read)
+    end)
+  end
+
+  defp maybe_append_value(values, true, value), do: [value | values]
+  defp maybe_append_value(values, false, _value), do: values
+
+  defp toggle_series_visibility(visible_series, "learning") do
+    visible_series
+  end
+
+  defp toggle_series_visibility(visible_series, "known") do
+    visible_series
+  end
+
+  defp toggle_series_visibility(visible_series, "words-read") do
+    %{visible_series | words_read: !visible_series.words_read}
+  end
+
+  defp toggle_series_visibility(visible_series, _unknown_series), do: visible_series
 
   defp point_x(_index, 1, _width), do: @chart_padding_left
 

@@ -288,8 +288,33 @@
     color: var(--warm-text-muted);
   }
 
+  .stats-legend .legend-toggle {
+    @apply inline-flex items-center gap-2;
+    padding: 0;
+    border: none;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+    transition: opacity 0.12s ease;
+  }
+
   .stats-legend span {
     @apply inline-flex items-center gap-2;
+  }
+
+  .stats-legend .legend-toggle.is-hidden {
+    opacity: 0.45;
+    color: var(--warm-text-subtle);
+  }
+
+  .stats-legend .legend-toggle.is-hidden .legend-dot {
+    opacity: 0.55;
+  }
+
+  .stats-legend .legend-toggle:focus-visible {
+    outline: 1px solid rgba(213, 194, 166, 0.7);
+    outline-offset: 3px;
+    border-radius: 999px;
   }
 
   .legend-dot {
