@@ -19,7 +19,6 @@ defmodule LexWeb.StatsLive.Index do
 
   @chart_width 820
   @chart_height 260
-  @proportion_chart_height 160
   @chart_padding_left 56
   @chart_padding_right 16
   @chart_padding_top 16
@@ -43,7 +42,6 @@ defmodule LexWeb.StatsLive.Index do
     books = if user_id, do: load_book_progress(user_id), else: %{in_progress: [], completed: []}
 
     chart = build_chart_series(timeline)
-    proportion_chart = build_proportion_chart_series(timeline)
 
     {:ok,
      socket
@@ -53,7 +51,6 @@ defmodule LexWeb.StatsLive.Index do
      |> assign(:timeline, timeline)
      |> assign(:learning_lexemes, learning_lexemes)
      |> assign(:chart, chart)
-     |> assign(:proportion_chart, proportion_chart)
      |> assign(:books_in_progress, books.in_progress)
      |> assign(:books_completed, books.completed)}
   end
@@ -101,7 +98,13 @@ defmodule LexWeb.StatsLive.Index do
           known: running.known + Map.get(known_by_bucket, bucket, 0)
         }
 
-        point = %{bucket: bucket, read: next.read, learning: next.learning, known: next.known}
+        point = %{
+          bucket: bucket,
+          read: next.read + next.learning + next.known,
+          learning: next.learning,
+          known: next.known
+        }
+
         {[point | acc], next}
       end)
 
@@ -397,7 +400,16 @@ defmodule LexWeb.StatsLive.Index do
   end
 
   defp build_chart_series([]) do
-    %{grid_lines: [], read: "", learning: "", known: "", labels: %{start: "", end: ""}}
+    %{
+      grid_lines: [],
+      read: "",
+      learning: "",
+      known: "",
+      read_area: "",
+      known_area: "",
+      learning_area: "",
+      labels: %{start: "", end: ""}
+    }
   end
 
   defp build_chart_series(timeline) do
@@ -431,56 +443,23 @@ defmodule LexWeb.StatsLive.Index do
         {point_x(index, length(timeline), width), point_y(point.known, y_axis.max, height)}
       end)
 
-    %{grid_lines: grid_lines(y_axis, height), labels: edge_labels(timeline)}
-    |> Map.put(:read, as_svg_points(read_points))
-    |> Map.put(:learning, as_svg_points(learning_points))
-    |> Map.put(:known, as_svg_points(known_points))
-  end
-
-  defp build_proportion_chart_series([]) do
-    %{grid_lines: [], read: "", learning: "", known: ""}
-  end
-
-  defp build_proportion_chart_series(timeline) do
-    width = @chart_width - @chart_padding_left - @chart_padding_right
-    height = @proportion_chart_height - @chart_padding_top - @chart_padding_bottom
-
-    {read_points, learning_points, known_points} =
+    baseline_points =
       timeline
       |> Enum.with_index()
-      |> Enum.reduce({[], [], []}, fn {point, index}, {read_acc, learning_acc, known_acc} ->
-        proportions = stacked_proportion_boundaries(point)
-        x = point_x(index, length(timeline), width)
-
-        {
-          [{x, point_y(proportions.read, 1.0, height)} | read_acc],
-          [{x, point_y(proportions.learning, 1.0, height)} | learning_acc],
-          [{x, point_y(proportions.known, 1.0, height)} | known_acc]
-        }
+      |> Enum.map(fn {_point, index} ->
+        {point_x(index, length(timeline), width), point_y(0, y_axis.max, height)}
       end)
 
     %{
-      grid_lines: proportion_grid_lines(height),
-      read: read_points |> Enum.reverse() |> as_svg_points(),
-      learning: learning_points |> Enum.reverse() |> as_svg_points(),
-      known: known_points |> Enum.reverse() |> as_svg_points()
+      grid_lines: grid_lines(y_axis, height),
+      labels: edge_labels(timeline),
+      read: as_svg_points(read_points),
+      learning: as_svg_points(learning_points),
+      known: as_svg_points(known_points),
+      learning_area: as_svg_area_between(learning_points, baseline_points),
+      known_area: as_svg_area_between(known_points, learning_points),
+      read_area: as_svg_area_between(read_points, known_points)
     }
-  end
-
-  defp stacked_proportion_boundaries(point) do
-    read = max(point.read, 0)
-    learning = max(point.learning, 0)
-    known = max(point.known, 0)
-
-    if read == 0 do
-      %{read: 0.0, learning: 0.0, known: 0.0}
-    else
-      %{
-        read: 1.0,
-        learning: learning / read,
-        known: known / read
-      }
-    end
   end
 
   defp point_x(_index, 1, _width), do: @chart_padding_left
@@ -500,6 +479,12 @@ defmodule LexWeb.StatsLive.Index do
     end)
   end
 
+  defp as_svg_area_between(upper_points, lower_points) do
+    upper_points
+    |> Kernel.++(Enum.reverse(lower_points))
+    |> as_svg_points()
+  end
+
   defp round_svg_coord(value) when is_integer(value), do: (value * 1.0) |> Float.round(2)
   defp round_svg_coord(value) when is_float(value), do: Float.round(value, 2)
 
@@ -508,13 +493,6 @@ defmodule LexWeb.StatsLive.Index do
       ratio = value / y_axis.max
       y = @chart_padding_top + (height - ratio * height)
       %{value: value, y: Float.round(y, 2)}
-    end
-  end
-
-  defp proportion_grid_lines(height) do
-    for {label, ratio} <- [{"1.0", 1.0}, {"0.5", 0.5}, {"0", 0.0}] do
-      y = @chart_padding_top + (height - ratio * height)
-      %{value: label, y: Float.round(y, 2)}
     end
   end
 

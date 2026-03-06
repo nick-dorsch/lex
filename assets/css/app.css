@@ -338,6 +338,22 @@
     stroke-width: 2;
   }
 
+  .stats-chart .series-area {
+    stroke: none;
+  }
+
+  .stats-chart .series-area.read {
+    fill: rgba(96, 165, 250, 0.14);
+  }
+
+  .stats-chart .series-area.learning {
+    fill: rgba(245, 158, 11, 0.14);
+  }
+
+  .stats-chart .series-area.known {
+    fill: rgba(52, 211, 153, 0.14);
+  }
+
   .stats-chart .series.read {
     stroke: #60a5fa;
   }
