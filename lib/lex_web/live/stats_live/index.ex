@@ -30,8 +30,10 @@ defmodule LexWeb.StatsLive.Index do
 
     counts =
       if user_id do
-        user_id
-        |> Vocab.get_status_counts()
+        status_counts = Vocab.get_status_counts(user_id)
+
+        status_counts
+        |> Map.put(:read, status_counts.read + status_counts.learning + status_counts.known)
         |> Map.put(:words_read, load_words_read_count(user_id))
       else
         %{words_read: 0, read: 0, learning: 0, known: 0}
