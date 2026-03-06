@@ -10,6 +10,7 @@ defmodule LexWeb.StatsLive.IndexTest do
   alias Lex.Repo
   alias Lex.Text.Lexeme
   alias Lex.Text.Sentence
+  alias Lex.Text.Token
   alias Lex.Vocab.UserLexemeState
 
   describe "stats dashboard" do
@@ -20,9 +21,11 @@ defmodule LexWeb.StatsLive.IndexTest do
 
       {:ok, _view, html} = live(conn, "/stats")
 
-      assert html =~ "Reading Timeline"
-      assert html =~ "Vocabulary growth chart"
-      assert html =~ "Words Read"
+      assert html =~ "Lexemes Timeline"
+      assert html =~ "Lexeme growth chart"
+      assert html =~ "Lexeme proportion chart"
+      assert html =~ "Words - Read"
+      assert html =~ "Lex. - Read"
       assert html =~ ">1<"
     end
 
@@ -58,6 +61,9 @@ defmodule LexWeb.StatsLive.IndexTest do
       mark_sentence_read(user, Enum.at(in_progress_sentences, 0))
       mark_sentence_read(user, Enum.at(in_progress_sentences, 1))
 
+      create_sentence_tokens(Enum.at(in_progress_sentences, 0), ["alpha", "beta", "."])
+      create_sentence_tokens(Enum.at(in_progress_sentences, 1), ["gamma", "delta", "!"])
+
       completed_doc = create_document(user, "Completed Book")
       completed_section = create_section(completed_doc)
 
@@ -68,17 +74,24 @@ defmodule LexWeb.StatsLive.IndexTest do
 
       Enum.each(completed_sentences, &mark_sentence_read(user, &1))
 
+      create_sentence_tokens(Enum.at(completed_sentences, 0), ["one", "two", ","])
+      create_sentence_tokens(Enum.at(completed_sentences, 1), ["three", "four", "."])
+      create_sentence_tokens(Enum.at(completed_sentences, 2), ["five", "six", "?"])
+
       {:ok, _view, html} = live(conn, "/stats")
 
       assert html =~ "Stats"
       assert html =~ "Library"
-      assert html =~ "Words Read"
-      assert html =~ "Words Learning"
-      assert html =~ "Words Known"
+      assert html =~ "Words - Read"
+      assert html =~ "Lex. - Read"
+      assert html =~ "Lex. - Learning"
+      assert html =~ "Lex. - Known"
+      assert html =~ ">10<"
       assert html =~ ">3<"
       assert html =~ ">1<"
-      assert html =~ "Reading Timeline"
-      assert html =~ "Vocabulary growth chart"
+      assert html =~ "Lexemes Timeline"
+      assert html =~ "Lexeme growth chart"
+      assert html =~ "Lexeme proportion chart"
 
       assert html =~ "In Progress"
       assert html =~ "In Progress Book"
@@ -187,5 +200,24 @@ defmodule LexWeb.StatsLive.IndexTest do
       read_at: DateTime.utc_now() |> DateTime.truncate(:second)
     })
     |> Repo.insert!()
+  end
+
+  defp create_sentence_tokens(sentence, surfaces) do
+    Enum.with_index(surfaces, 1)
+    |> Enum.each(fn {surface, position} ->
+      punctuation? = String.match?(surface, ~r/^[[:punct:]]+$/)
+
+      %Token{}
+      |> Token.changeset(%{
+        sentence_id: sentence.id,
+        position: position,
+        surface: surface,
+        normalized_surface: String.downcase(surface),
+        lemma: String.downcase(surface),
+        pos: if(punctuation?, do: "PUNCT", else: "NOUN"),
+        is_punctuation: punctuation?
+      })
+      |> Repo.insert!()
+    end)
   end
 end

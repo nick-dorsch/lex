@@ -131,18 +131,19 @@
   }
 
   .stats-cards {
-    @apply grid gap-4 mb-6;
-    grid-template-columns: repeat(1, minmax(0, 1fr));
+    @apply grid gap-x-3 gap-y-4 mb-6;
+    grid-template-columns: repeat(2, minmax(9rem, max-content));
+    justify-content: center;
   }
 
   @media (min-width: 640px) {
     .stats-cards {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(9rem, max-content));
     }
   }
 
   .stats-card {
-    @apply p-2;
+    @apply p-2 text-center;
     background-color: transparent;
     border: none;
   }
@@ -311,6 +312,10 @@
     @apply w-full h-auto;
   }
 
+  .stats-chart-proportions {
+    margin-top: 0.75rem;
+  }
+
   .stats-chart .grid-line {
     stroke: rgba(213, 194, 166, 0.2);
     stroke-width: 1;
@@ -327,6 +332,10 @@
     stroke-width: 2.5;
     stroke-linecap: round;
     stroke-linejoin: round;
+  }
+
+  .stats-chart-proportions .series {
+    stroke-width: 2;
   }
 
   .stats-chart .series.read {

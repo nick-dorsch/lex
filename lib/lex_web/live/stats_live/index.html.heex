@@ -9,22 +9,26 @@
 
   <div class="stats-cards">
     <div class="stats-card">
-      <p class="stats-label">Words Read</p>
+      <p class="stats-label">Words - Read</p>
+      <p class="stats-value"><%= @counts.words_read %></p>
+    </div>
+    <div class="stats-card">
+      <p class="stats-label">Lex. - Read</p>
       <p class="stats-value"><%= @counts.read %></p>
     </div>
     <div class="stats-card">
-      <p class="stats-label">Words Learning</p>
+      <p class="stats-label">Lex. - Learning</p>
       <p class="stats-value"><%= @counts.learning %></p>
     </div>
     <div class="stats-card">
-      <p class="stats-label">Words Known</p>
+      <p class="stats-label">Lex. - Known</p>
       <p class="stats-value"><%= @counts.known %></p>
     </div>
   </div>
 
   <div class="stats-chart-panel">
     <div class="stats-chart-header">
-      <h2>Reading Timeline</h2>
+      <h2>Lexemes Timeline</h2>
       <div class="stats-legend">
         <span><i class="legend-dot read"></i>Read</span>
         <span><i class="legend-dot learning"></i>Learning</span>
@@ -35,7 +39,7 @@
     <%= if Enum.empty?(@timeline) do %>
       <p class="stats-empty">No reading activity yet.</p>
     <% else %>
-      <svg viewBox="0 0 820 260" class="stats-chart" role="img" aria-label="Vocabulary growth chart">
+      <svg viewBox="0 0 820 260" class="stats-chart" role="img" aria-label="Lexeme growth chart">
         <%= for line <- @chart.grid_lines do %>
           <line x1="56" y1={line.y} x2="804" y2={line.y} class="grid-line" />
           <text x="8" y={line.y + 4} class="grid-label"><%= line.value %></text>
@@ -45,8 +49,27 @@
         <polyline points={@chart.learning} class="series learning" />
         <polyline points={@chart.known} class="series known" />
 
-        <text x="56" y="250" class="axis-label"><%= @chart.labels.start %></text>
-        <text x="804" y="250" text-anchor="end" class="axis-label"><%= @chart.labels.end %></text>
+      </svg>
+
+      <h3>Proportions</h3>
+
+      <svg
+        viewBox="0 0 820 160"
+        class="stats-chart stats-chart-proportions"
+        role="img"
+        aria-label="Lexeme proportion chart"
+      >
+        <%= for line <- @proportion_chart.grid_lines do %>
+          <line x1="56" y1={line.y} x2="804" y2={line.y} class="grid-line" />
+          <text x="8" y={line.y + 4} class="grid-label"><%= line.value %></text>
+        <% end %>
+
+        <polyline points={@proportion_chart.read} class="series read" />
+        <polyline points={@proportion_chart.learning} class="series learning" />
+        <polyline points={@proportion_chart.known} class="series known" />
+
+        <text x="56" y="150" class="axis-label"><%= @chart.labels.start %></text>
+        <text x="804" y="150" text-anchor="end" class="axis-label"><%= @chart.labels.end %></text>
       </svg>
     <% end %>
   </div>
@@ -87,7 +110,7 @@
   <div class="stats-learning-panel">
     <h2>Currently Learning</h2>
     <%= if Enum.empty?(@learning_lexemes) do %>
-      <p class="stats-empty">No learning words yet.</p>
+      <p class="stats-empty">No learning lexemes yet.</p>
     <% else %>
       <div class="stats-learning-table-wrap">
         <% learning_table_headers = ["Lemma", "Seen Count", "Document", "Most Recent Sentence", "First Seen"] %>

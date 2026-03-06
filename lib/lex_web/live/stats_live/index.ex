@@ -19,6 +19,7 @@ defmodule LexWeb.StatsLive.Index do
 
   @chart_width 820
   @chart_height 260
+  @proportion_chart_height 160
   @chart_padding_left 56
   @chart_padding_right 16
   @chart_padding_top 16
@@ -29,13 +30,20 @@ defmodule LexWeb.StatsLive.Index do
     user_id = get_user_id(socket)
 
     counts =
-      if user_id, do: Vocab.get_status_counts(user_id), else: %{read: 0, learning: 0, known: 0}
+      if user_id do
+        user_id
+        |> Vocab.get_status_counts()
+        |> Map.put(:words_read, load_words_read_count(user_id))
+      else
+        %{words_read: 0, read: 0, learning: 0, known: 0}
+      end
 
     timeline = if user_id, do: load_timeline(user_id), else: []
     learning_lexemes = if user_id, do: load_learning_lexemes(user_id), else: []
     books = if user_id, do: load_book_progress(user_id), else: %{in_progress: [], completed: []}
 
     chart = build_chart_series(timeline)
+    proportion_chart = build_proportion_chart_series(timeline)
 
     {:ok,
      socket
@@ -45,6 +53,7 @@ defmodule LexWeb.StatsLive.Index do
      |> assign(:timeline, timeline)
      |> assign(:learning_lexemes, learning_lexemes)
      |> assign(:chart, chart)
+     |> assign(:proportion_chart, proportion_chart)
      |> assign(:books_in_progress, books.in_progress)
      |> assign(:books_completed, books.completed)}
   end
@@ -74,24 +83,25 @@ defmodule LexWeb.StatsLive.Index do
     do: Repo.one(from(u in User, order_by: [asc: u.id], limit: 1, select: u.id))
 
   defp load_timeline(user_id) do
-    read_by_hour = count_lexemes_per_hour(user_id, :first_seen_at)
-    learning_by_hour = count_lexemes_per_hour(user_id, :learning_since)
-    known_by_hour = count_lexemes_per_hour(user_id, :known_at)
+    read_by_bucket = count_lexemes_per_twenty_minutes(user_id, :first_seen_at)
+    learning_by_bucket = count_lexemes_per_twenty_minutes(user_id, :learning_since)
+    known_by_bucket = count_lexemes_per_twenty_minutes(user_id, :known_at)
 
-    all_hours =
-      (Map.keys(read_by_hour) ++ Map.keys(learning_by_hour) ++ Map.keys(known_by_hour))
-      |> Enum.uniq()
-      |> Enum.sort()
+    all_buckets =
+      (Map.keys(read_by_bucket) ++
+         Map.keys(learning_by_bucket) ++ Map.keys(known_by_bucket))
+      |> all_twenty_minute_buckets()
 
     {timeline, _running} =
-      Enum.reduce(all_hours, {[], %{read: 0, learning: 0, known: 0}}, fn hour, {acc, running} ->
+      Enum.reduce(all_buckets, {[], %{read: 0, learning: 0, known: 0}}, fn bucket,
+                                                                           {acc, running} ->
         next = %{
-          read: running.read + Map.get(read_by_hour, hour, 0),
-          learning: running.learning + Map.get(learning_by_hour, hour, 0),
-          known: running.known + Map.get(known_by_hour, hour, 0)
+          read: running.read + Map.get(read_by_bucket, bucket, 0),
+          learning: running.learning + Map.get(learning_by_bucket, bucket, 0),
+          known: running.known + Map.get(known_by_bucket, bucket, 0)
         }
 
-        point = %{hour: hour, read: next.read, learning: next.learning, known: next.known}
+        point = %{bucket: bucket, read: next.read, learning: next.learning, known: next.known}
         {[point | acc], next}
       end)
 
@@ -100,30 +110,68 @@ defmodule LexWeb.StatsLive.Index do
     |> prepend_zero_start()
   end
 
+  defp all_twenty_minute_buckets([]), do: []
+
+  defp all_twenty_minute_buckets(bucket_strings) do
+    bucket_datetimes = Enum.map(bucket_strings, &parse_bucket!/1)
+    start_bucket = Enum.min(bucket_datetimes, NaiveDateTime)
+    end_bucket = Enum.max(bucket_datetimes, NaiveDateTime)
+
+    Stream.iterate(start_bucket, &NaiveDateTime.add(&1, 1200, :second))
+    |> Enum.take_while(&(NaiveDateTime.compare(&1, end_bucket) != :gt))
+    |> Enum.map(&format_bucket/1)
+  end
+
   defp prepend_zero_start([]), do: []
 
   defp prepend_zero_start([first_point | _] = timeline) do
-    [%{hour: previous_hour_bucket(first_point.hour), read: 0, learning: 0, known: 0} | timeline]
+    [
+      %{bucket: previous_twenty_minute_bucket(first_point.bucket), read: 0, learning: 0, known: 0}
+      | timeline
+    ]
   end
 
-  defp previous_hour_bucket(hourly_bucket) do
-    hourly_bucket
+  defp previous_twenty_minute_bucket(twenty_minute_bucket) do
+    twenty_minute_bucket
+    |> parse_bucket!()
+    |> NaiveDateTime.add(-1200, :second)
+    |> format_bucket()
+  end
+
+  defp parse_bucket!(bucket) do
+    bucket
     |> String.replace(" ", "T")
     |> NaiveDateTime.from_iso8601!()
-    |> NaiveDateTime.add(-3600, :second)
-    |> Calendar.strftime("%Y-%m-%d %H:00:00")
   end
 
-  defp count_lexemes_per_hour(user_id, timestamp_field) do
+  defp format_bucket(naive_datetime) do
+    Calendar.strftime(naive_datetime, "%Y-%m-%d %H:%M:00")
+  end
+
+  defp count_lexemes_per_twenty_minutes(user_id, timestamp_field) do
     UserLexemeState
     |> where([s], s.user_id == ^user_id)
     |> where([s], not is_nil(field(s, ^timestamp_field)))
-    |> group_by([s], fragment("strftime('%Y-%m-%d %H:00:00', ?)", field(s, ^timestamp_field)))
+    |> group_by(
+      [s],
+      fragment(
+        "strftime('%Y-%m-%d %H:', ?) || printf('%02d:00', (cast(strftime('%M', ?) as integer) / 20) * 20)",
+        field(s, ^timestamp_field),
+        field(s, ^timestamp_field)
+      )
+    )
     |> select(
       [
         s
       ],
-      {fragment("strftime('%Y-%m-%d %H:00:00', ?)", field(s, ^timestamp_field)), count(s.id)}
+      {
+        fragment(
+          "strftime('%Y-%m-%d %H:', ?) || printf('%02d:00', (cast(strftime('%M', ?) as integer) / 20) * 20)",
+          field(s, ^timestamp_field),
+          field(s, ^timestamp_field)
+        ),
+        count(s.id)
+      }
     )
     |> Repo.all()
     |> Map.new()
@@ -184,6 +232,18 @@ defmodule LexWeb.StatsLive.Index do
           )
       end
     end)
+  end
+
+  defp load_words_read_count(user_id) do
+    UserSentenceState
+    |> join(:inner, [uss], t in Token, on: t.sentence_id == uss.sentence_id)
+    |> where(
+      [uss, t],
+      uss.user_id == ^user_id and uss.status == "read" and t.is_punctuation == false
+    )
+    |> select([_uss, t], count(t.id))
+    |> Repo.one()
+    |> Kernel.||(0)
   end
 
   defp recent_sentence_by_lexeme([], _user_id), do: %{}
@@ -377,6 +437,52 @@ defmodule LexWeb.StatsLive.Index do
     |> Map.put(:known, as_svg_points(known_points))
   end
 
+  defp build_proportion_chart_series([]) do
+    %{grid_lines: [], read: "", learning: "", known: ""}
+  end
+
+  defp build_proportion_chart_series(timeline) do
+    width = @chart_width - @chart_padding_left - @chart_padding_right
+    height = @proportion_chart_height - @chart_padding_top - @chart_padding_bottom
+
+    {read_points, learning_points, known_points} =
+      timeline
+      |> Enum.with_index()
+      |> Enum.reduce({[], [], []}, fn {point, index}, {read_acc, learning_acc, known_acc} ->
+        proportions = stacked_proportion_boundaries(point)
+        x = point_x(index, length(timeline), width)
+
+        {
+          [{x, point_y(proportions.read, 1.0, height)} | read_acc],
+          [{x, point_y(proportions.learning, 1.0, height)} | learning_acc],
+          [{x, point_y(proportions.known, 1.0, height)} | known_acc]
+        }
+      end)
+
+    %{
+      grid_lines: proportion_grid_lines(height),
+      read: read_points |> Enum.reverse() |> as_svg_points(),
+      learning: learning_points |> Enum.reverse() |> as_svg_points(),
+      known: known_points |> Enum.reverse() |> as_svg_points()
+    }
+  end
+
+  defp stacked_proportion_boundaries(point) do
+    read = max(point.read, 0)
+    learning = max(point.learning, 0)
+    known = max(point.known, 0)
+
+    if read == 0 do
+      %{read: 0.0, learning: 0.0, known: 0.0}
+    else
+      %{
+        read: 1.0,
+        learning: learning / read,
+        known: known / read
+      }
+    end
+  end
+
   defp point_x(_index, 1, _width), do: @chart_padding_left
 
   defp point_x(index, size, width) do
@@ -402,6 +508,13 @@ defmodule LexWeb.StatsLive.Index do
       ratio = value / y_axis.max
       y = @chart_padding_top + (height - ratio * height)
       %{value: value, y: Float.round(y, 2)}
+    end
+  end
+
+  defp proportion_grid_lines(height) do
+    for {label, ratio} <- [{"1.0", 1.0}, {"0.5", 0.5}, {"0", 0.0}] do
+      y = @chart_padding_top + (height - ratio * height)
+      %{value: label, y: Float.round(y, 2)}
     end
   end
 
@@ -445,17 +558,17 @@ defmodule LexWeb.StatsLive.Index do
 
   defp edge_labels(timeline) do
     %{
-      start: format_date_label(List.first(timeline).hour),
-      end: format_date_label(List.last(timeline).hour)
+      start: format_date_label(List.first(timeline).bucket),
+      end: format_date_label(List.last(timeline).bucket)
     }
   end
 
-  defp format_date_label(hourly_bucket) do
-    date = hourly_bucket |> String.split(" ", parts: 2) |> List.first()
-
-    case String.split(date, "-") do
-      [year, month, day] -> "#{month}/#{day}/#{year}"
-      _ -> hourly_bucket
+  defp format_date_label(bucket) do
+    with {:ok, naive_datetime} <-
+           bucket |> String.replace(" ", "T") |> NaiveDateTime.from_iso8601() do
+      Calendar.strftime(naive_datetime, "%m/%d/%Y")
+    else
+      _ -> bucket
     end
   end
 end
