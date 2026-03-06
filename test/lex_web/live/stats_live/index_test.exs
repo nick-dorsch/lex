@@ -23,7 +23,6 @@ defmodule LexWeb.StatsLive.IndexTest do
 
       assert html =~ "Lexemes Timeline"
       assert html =~ "Lexeme growth chart"
-      assert html =~ "Lexeme proportion chart"
       assert html =~ "Words - Read"
       assert html =~ "Lex. - Read"
       assert html =~ ">1<"
@@ -87,11 +86,10 @@ defmodule LexWeb.StatsLive.IndexTest do
       assert html =~ "Lex. - Learning"
       assert html =~ "Lex. - Known"
       assert html =~ ">10<"
-      assert html =~ ">3<"
+      assert html =~ ">2<"
       assert html =~ ">1<"
       assert html =~ "Lexemes Timeline"
       assert html =~ "Lexeme growth chart"
-      assert html =~ "Lexeme proportion chart"
 
       assert html =~ "In Progress"
       assert html =~ "In Progress Book"

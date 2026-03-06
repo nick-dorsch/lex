@@ -296,16 +296,16 @@
     @apply inline-block w-2.5 h-2.5 rounded-full;
   }
 
-  .legend-dot.read {
-    background-color: #60a5fa;
-  }
-
   .legend-dot.learning {
     background-color: #f59e0b;
   }
 
   .legend-dot.known {
     background-color: #34d399;
+  }
+
+  .legend-dot.words-read {
+    background-color: var(--warm-text);
   }
 
   .stats-chart {
@@ -329,7 +329,7 @@
 
   .stats-chart .series {
     fill: none;
-    stroke-width: 2.5;
+    stroke-width: 1.75;
     stroke-linecap: round;
     stroke-linejoin: round;
   }
@@ -342,10 +342,6 @@
     stroke: none;
   }
 
-  .stats-chart .series-area.read {
-    fill: rgba(96, 165, 250, 0.14);
-  }
-
   .stats-chart .series-area.learning {
     fill: rgba(245, 158, 11, 0.14);
   }
@@ -354,16 +350,17 @@
     fill: rgba(52, 211, 153, 0.14);
   }
 
-  .stats-chart .series.read {
-    stroke: #60a5fa;
-  }
-
   .stats-chart .series.learning {
     stroke: #f59e0b;
   }
 
   .stats-chart .series.known {
     stroke: #34d399;
+  }
+
+  .stats-chart .series.words-read {
+    stroke: var(--warm-text);
+    stroke-dasharray: 6 4;
   }
 
   .stats-books-grid {

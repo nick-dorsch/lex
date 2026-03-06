@@ -1,6 +1,6 @@
 <div class="stats-container">
   <div class="stats-header">
-    <h1>Stats</h1>
+    <h1>Statistics</h1>
     <.link navigate={~p"/library"} class="header-link-btn" aria-label="Library" title="Library">
       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
       <span class="sr-only">Library</span>
@@ -28,33 +28,33 @@
 
   <div class="stats-chart-panel">
     <div class="stats-chart-header">
-      <h2>Lexemes Timeline</h2>
+      <h2>Reading Timeline</h2>
       <div class="stats-legend">
-        <span><i class="legend-dot read"></i>Read</span>
         <span><i class="legend-dot learning"></i>Learning</span>
         <span><i class="legend-dot known"></i>Known</span>
+        <span><i class="legend-dot words-read"></i>Words Read</span>
       </div>
     </div>
 
     <%= if Enum.empty?(@timeline) do %>
       <p class="stats-empty">No reading activity yet.</p>
     <% else %>
-      <svg viewBox="0 0 820 260" class="stats-chart" role="img" aria-label="Lexeme growth chart">
+      <svg viewBox="0 0 820 312" class="stats-chart" role="img" aria-label="Lexeme growth chart">
         <%= for line <- @chart.grid_lines do %>
           <line x1="56" y1={line.y} x2="804" y2={line.y} class="grid-line" />
           <text x="8" y={line.y + 4} class="grid-label"><%= line.value %></text>
         <% end %>
 
-        <polygon points={@chart.learning_area} class="series-area learning" />
         <polygon points={@chart.known_area} class="series-area known" />
-        <polygon points={@chart.read_area} class="series-area read" />
+        <polygon points={@chart.learning_area} class="series-area learning" />
 
-        <polyline points={@chart.read} class="series read" />
-        <polyline points={@chart.learning} class="series learning" />
         <polyline points={@chart.known} class="series known" />
+        <polyline points={@chart.learning} class="series learning" />
+        <polyline points={@chart.words_read} class="series words-read" />
 
-        <text x="56" y="250" class="axis-label"><%= @chart.labels.start %></text>
-        <text x="804" y="250" text-anchor="end" class="axis-label"><%= @chart.labels.end %></text>
+        <%= for tick <- @chart.x_ticks do %>
+          <text x={tick.x} y="302" text-anchor={tick.anchor} class="axis-label"><%= tick.label %></text>
+        <% end %>
 
       </svg>
 

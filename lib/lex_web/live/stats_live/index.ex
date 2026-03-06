@@ -18,7 +18,7 @@ defmodule LexWeb.StatsLive.Index do
   alias Lex.Vocab.UserLexemeState
 
   @chart_width 820
-  @chart_height 260
+  @chart_height 312
   @chart_padding_left 56
   @chart_padding_right 16
   @chart_padding_top 16
@@ -33,7 +33,7 @@ defmodule LexWeb.StatsLive.Index do
         status_counts = Vocab.get_status_counts(user_id)
 
         status_counts
-        |> Map.put(:read, status_counts.read + status_counts.learning + status_counts.known)
+        |> Map.put(:read, status_counts.learning + status_counts.known)
         |> Map.put(:words_read, load_words_read_count(user_id))
       else
         %{words_read: 0, read: 0, learning: 0, known: 0}
@@ -83,28 +83,29 @@ defmodule LexWeb.StatsLive.Index do
 
   defp load_timeline(user_id) do
     read_by_bucket = count_lexemes_per_twenty_minutes(user_id, :first_seen_at)
-    learning_by_bucket = count_lexemes_per_twenty_minutes(user_id, :learning_since)
     known_by_bucket = count_lexemes_per_twenty_minutes(user_id, :known_at)
+    words_read_by_bucket = count_words_read_per_twenty_minutes(user_id)
 
     all_buckets =
-      (Map.keys(read_by_bucket) ++
-         Map.keys(learning_by_bucket) ++ Map.keys(known_by_bucket))
+      (Map.keys(read_by_bucket) ++ Map.keys(known_by_bucket) ++ Map.keys(words_read_by_bucket))
       |> all_twenty_minute_buckets()
 
     {timeline, _running} =
-      Enum.reduce(all_buckets, {[], %{read: 0, learning: 0, known: 0}}, fn bucket,
-                                                                           {acc, running} ->
+      Enum.reduce(all_buckets, {[], %{seen: 0, known: 0, words_read: 0}}, fn bucket,
+                                                                             {acc, running} ->
         next = %{
-          read: running.read + Map.get(read_by_bucket, bucket, 0),
-          learning: running.learning + Map.get(learning_by_bucket, bucket, 0),
-          known: running.known + Map.get(known_by_bucket, bucket, 0)
+          seen: running.seen + Map.get(read_by_bucket, bucket, 0),
+          known: running.known + Map.get(known_by_bucket, bucket, 0),
+          words_read: running.words_read + Map.get(words_read_by_bucket, bucket, 0)
         }
+
+        learning = max(next.seen - next.known, 0)
 
         point = %{
           bucket: bucket,
-          read: next.read + next.learning + next.known,
-          learning: next.learning,
-          known: next.known
+          learning: learning,
+          known: next.known,
+          words_read: next.words_read
         }
 
         {[point | acc], next}
@@ -131,7 +132,12 @@ defmodule LexWeb.StatsLive.Index do
 
   defp prepend_zero_start([first_point | _] = timeline) do
     [
-      %{bucket: previous_twenty_minute_bucket(first_point.bucket), read: 0, learning: 0, known: 0}
+      %{
+        bucket: previous_twenty_minute_bucket(first_point.bucket),
+        learning: 0,
+        known: 0,
+        words_read: 0
+      }
       | timeline
     ]
   end
@@ -249,6 +255,37 @@ defmodule LexWeb.StatsLive.Index do
     |> select([_uss, t], count(t.id))
     |> Repo.one()
     |> Kernel.||(0)
+  end
+
+  defp count_words_read_per_twenty_minutes(user_id) do
+    UserSentenceState
+    |> join(:inner, [uss], t in Token, on: t.sentence_id == uss.sentence_id)
+    |> where(
+      [uss, t],
+      uss.user_id == ^user_id and uss.status == "read" and not is_nil(uss.read_at) and
+        t.is_punctuation == false
+    )
+    |> group_by(
+      [uss, _t],
+      fragment(
+        "strftime('%Y-%m-%d %H:', ?) || printf('%02d:00', (cast(strftime('%M', ?) as integer) / 20) * 20)",
+        uss.read_at,
+        uss.read_at
+      )
+    )
+    |> select(
+      [uss, t],
+      {
+        fragment(
+          "strftime('%Y-%m-%d %H:', ?) || printf('%02d:00', (cast(strftime('%M', ?) as integer) / 20) * 20)",
+          uss.read_at,
+          uss.read_at
+        ),
+        count(t.id)
+      }
+    )
+    |> Repo.all()
+    |> Map.new()
   end
 
   defp recent_sentence_by_lexeme([], _user_id), do: %{}
@@ -404,38 +441,31 @@ defmodule LexWeb.StatsLive.Index do
   defp build_chart_series([]) do
     %{
       grid_lines: [],
-      read: "",
       learning: "",
       known: "",
-      read_area: "",
+      words_read: "",
       known_area: "",
       learning_area: "",
-      labels: %{start: "", end: ""}
+      x_ticks: []
     }
   end
 
   defp build_chart_series(timeline) do
     values =
       timeline
-      |> Enum.flat_map(fn point -> [point.read, point.learning, point.known] end)
+      |> Enum.flat_map(fn point -> [point.known + point.learning, point.words_read] end)
 
     max_value = Enum.max([1 | values])
     y_axis = y_axis_scale(max_value)
     width = @chart_width - @chart_padding_left - @chart_padding_right
     height = @chart_height - @chart_padding_top - @chart_padding_bottom
 
-    read_points =
-      timeline
-      |> Enum.with_index()
-      |> Enum.map(fn {point, index} ->
-        {point_x(index, length(timeline), width), point_y(point.read, y_axis.max, height)}
-      end)
-
     learning_points =
       timeline
       |> Enum.with_index()
       |> Enum.map(fn {point, index} ->
-        {point_x(index, length(timeline), width), point_y(point.learning, y_axis.max, height)}
+        stacked_learning = point.known + point.learning
+        {point_x(index, length(timeline), width), point_y(stacked_learning, y_axis.max, height)}
       end)
 
     known_points =
@@ -443,6 +473,13 @@ defmodule LexWeb.StatsLive.Index do
       |> Enum.with_index()
       |> Enum.map(fn {point, index} ->
         {point_x(index, length(timeline), width), point_y(point.known, y_axis.max, height)}
+      end)
+
+    words_read_points =
+      timeline
+      |> Enum.with_index()
+      |> Enum.map(fn {point, index} ->
+        {point_x(index, length(timeline), width), point_y(point.words_read, y_axis.max, height)}
       end)
 
     baseline_points =
@@ -454,13 +491,12 @@ defmodule LexWeb.StatsLive.Index do
 
     %{
       grid_lines: grid_lines(y_axis, height),
-      labels: edge_labels(timeline),
-      read: as_svg_points(read_points),
+      x_ticks: x_axis_ticks(timeline, width),
       learning: as_svg_points(learning_points),
       known: as_svg_points(known_points),
-      learning_area: as_svg_area_between(learning_points, baseline_points),
-      known_area: as_svg_area_between(known_points, learning_points),
-      read_area: as_svg_area_between(read_points, known_points)
+      words_read: as_svg_points(words_read_points),
+      known_area: as_svg_area_between(known_points, baseline_points),
+      learning_area: as_svg_area_between(learning_points, known_points)
     }
   end
 
@@ -536,19 +572,64 @@ defmodule LexWeb.StatsLive.Index do
     end
   end
 
-  defp edge_labels(timeline) do
-    %{
-      start: format_date_label(List.first(timeline).bucket),
-      end: format_date_label(List.last(timeline).bucket)
-    }
+  defp x_axis_ticks(timeline, width) do
+    granularity = x_tick_granularity(timeline)
+    size = length(timeline)
+
+    {ticks, _last_key} =
+      timeline
+      |> Enum.with_index()
+      |> Enum.reduce({[], nil}, fn {point, index}, {acc, last_key} ->
+        datetime = parse_bucket!(point.bucket)
+        key = x_tick_key(datetime, granularity)
+
+        if key == last_key do
+          {acc, last_key}
+        else
+          {[%{index: index, datetime: datetime} | acc], key}
+        end
+      end)
+
+    ticks = Enum.reverse(ticks)
+
+    ticks
+    |> Enum.uniq_by(& &1.index)
+    |> Enum.map(fn %{index: index, datetime: datetime} ->
+      %{
+        x: round_svg_coord(point_x(index, size, width)),
+        label: format_x_tick_label(datetime, granularity),
+        anchor: x_tick_anchor(index, size)
+      }
+    end)
   end
 
-  defp format_date_label(bucket) do
-    with {:ok, naive_datetime} <-
-           bucket |> String.replace(" ", "T") |> NaiveDateTime.from_iso8601() do
-      Calendar.strftime(naive_datetime, "%m/%d/%Y")
-    else
-      _ -> bucket
+  defp x_tick_granularity(timeline) do
+    first_datetime = timeline |> List.first() |> Map.fetch!(:bucket) |> parse_bucket!()
+    last_datetime = timeline |> List.last() |> Map.fetch!(:bucket) |> parse_bucket!()
+    days = NaiveDateTime.diff(last_datetime, first_datetime, :second) / 86_400
+
+    cond do
+      days <= 45 -> :day
+      days <= 360 -> :week
+      true -> :month
     end
   end
+
+  defp x_tick_key(datetime, :day), do: NaiveDateTime.to_date(datetime)
+
+  defp x_tick_key(datetime, :week) do
+    date = NaiveDateTime.to_date(datetime)
+    {year, week} = :calendar.iso_week_number({date.year, date.month, date.day})
+    {year, week}
+  end
+
+  defp x_tick_key(datetime, :month), do: {datetime.year, datetime.month}
+
+  defp format_x_tick_label(datetime, :day), do: Calendar.strftime(datetime, "%d/%m")
+  defp format_x_tick_label(datetime, :week), do: Calendar.strftime(datetime, "%d/%m")
+  defp format_x_tick_label(datetime, :month), do: Calendar.strftime(datetime, "%b %Y")
+
+  defp x_tick_anchor(0, _size), do: "start"
+  defp x_tick_anchor(index, size) when index == size - 1, do: "end"
+  defp x_tick_anchor(_index, _size), do: "middle"
 end
