@@ -312,8 +312,10 @@ defmodule Lex.Library do
          lemma,
          pos
        ) do
+    normalized_lemma = normalize_lemma(lemma)
+
     # Find or create lexeme
-    case find_or_create_lexeme(language, normalized_surface, lemma, pos) do
+    case find_or_create_lexeme(language, normalized_lemma, lemma, pos) do
       {:ok, lexeme} ->
         token_attrs = %{
           sentence_id: sentence.id,
@@ -351,6 +353,9 @@ defmodule Lex.Library do
   end
 
   defp clean_string(value), do: to_string(value) |> clean_string()
+
+  defp normalize_lemma(lemma) when is_binary(lemma), do: String.downcase(lemma)
+  defp normalize_lemma(lemma), do: lemma
 
   defp fallback(nil, value), do: value
   defp fallback(value, _fallback), do: value

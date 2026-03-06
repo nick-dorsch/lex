@@ -622,6 +622,88 @@ defmodule Lex.LibraryTest do
         :meck.unload(Lex.Text.NLP)
       end
     end
+
+    test "maps inflected forms to one lexeme when lemma and pos match", %{user: user} do
+      :meck.new(Lex.Text.NLP, [:passthrough])
+
+      :meck.expect(Lex.Text.NLP, :process_text, fn _text, _opts ->
+        {:ok,
+         [
+           %{
+             "position" => 1,
+             "text" => "Tengo y tienes.",
+             "char_start" => 0,
+             "char_end" => 15,
+             "tokens" => [
+               %{
+                 "position" => 1,
+                 "surface" => "Tengo",
+                 "normalized_surface" => "tengo",
+                 "lemma" => "tener",
+                 "pos" => "VERB",
+                 "is_punctuation" => false,
+                 "char_start" => 0,
+                 "char_end" => 5
+               },
+               %{
+                 "position" => 2,
+                 "surface" => "y",
+                 "normalized_surface" => "y",
+                 "lemma" => "y",
+                 "pos" => "CCONJ",
+                 "is_punctuation" => false,
+                 "char_start" => 6,
+                 "char_end" => 7
+               },
+               %{
+                 "position" => 3,
+                 "surface" => "tienes",
+                 "normalized_surface" => "tienes",
+                 "lemma" => "tener",
+                 "pos" => "VERB",
+                 "is_punctuation" => false,
+                 "char_start" => 8,
+                 "char_end" => 14
+               },
+               %{
+                 "position" => 4,
+                 "surface" => ".",
+                 "normalized_surface" => ".",
+                 "lemma" => ".",
+                 "pos" => "PUNCT",
+                 "is_punctuation" => true,
+                 "char_start" => 14,
+                 "char_end" => 15
+               }
+             ]
+           }
+         ]}
+      end)
+
+      try do
+        path = "test/fixtures/epubs/el_principito.epub"
+        assert {:ok, _document} = Library.import_epub(path, user_id: user.id)
+
+        verb_tokens =
+          Repo.all(
+            from(t in Token,
+              where: t.pos == "VERB" and t.lemma == "tener",
+              order_by: t.position
+            )
+          )
+
+        assert length(verb_tokens) == 2
+
+        [first_verb, second_verb] = verb_tokens
+        assert first_verb.lexeme_id == second_verb.lexeme_id
+
+        lexemes = Repo.all(from(l in Lexeme, where: l.pos == "VERB" and l.lemma == "tener"))
+        assert length(lexemes) == 1
+        assert hd(lexemes).normalized_lemma == "tener"
+      after
+        :meck.unload(Lex.Text.NLP)
+      end
+    end
   end
 
   describe "calibre_library_path/0" do
