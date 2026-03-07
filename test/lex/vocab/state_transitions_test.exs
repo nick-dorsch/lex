@@ -103,13 +103,12 @@ defmodule Lex.Vocab.StateTransitionsTest do
       # Skip to section 2
       render_hook(view, :key_nav, %{"key" => "s"})
 
-      html = render(view)
-      assert html =~ "Chapter 2"
+      assert has_element?(view, ".reader-footer-section", section2.title)
 
       # Check we're at the last section by trying to skip again (should stay)
-      html2 = render_hook(view, :key_nav, %{"key" => "s"})
+      _html2 = render_hook(view, :key_nav, %{"key" => "s"})
       # Should still show Chapter 2 (can't skip past last section)
-      assert html2 =~ "Chapter 2"
+      assert has_element?(view, ".reader-footer-section", section2.title)
     end
   end
 

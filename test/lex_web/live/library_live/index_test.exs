@@ -26,12 +26,12 @@ defmodule LexWeb.LibraryLive.IndexTest do
 
   describe "index" do
     test "renders empty state when no documents ready", %{conn: conn} do
-      {:ok, _view, html} = live(conn, "/library")
+      {:ok, view, _html} = live(conn, "/library")
 
-      assert html =~ "My Library"
-      assert html =~ "Stats"
-      assert html =~ "No documents found."
-      assert html =~ "Set CALIBRE_LIBRARY_PATH"
+      assert has_element?(view, ".library-header")
+      assert has_element?(view, ".header-link-btn[aria-label='Stats']")
+      assert has_element?(view, ".empty-state")
+      assert has_element?(view, ".empty-state .sub-text")
     end
 
     test "does not create a user when no authenticated user is available", %{conn: conn} do
@@ -59,12 +59,9 @@ defmodule LexWeb.LibraryLive.IndexTest do
       _processing_doc = create_document(user, "processing")
       _failed_doc = create_document(user, "failed")
 
-      {:ok, _view, html} = live(conn, "/library")
+      {:ok, view, _html} = live(conn, "/library")
 
-      assert html =~ ready_doc.title
-      refute html =~ "uploaded document"
-      refute html =~ "processing document"
-      refute html =~ "failed document"
+      assert item_titles(view) == [ready_doc.title]
     end
 
     test "shows correct progress percentage", %{conn: conn} do
@@ -83,10 +80,10 @@ defmodule LexWeb.LibraryLive.IndexTest do
         mark_sentence_read(user, sentence)
       end
 
-      {:ok, _view, html} = live(conn, "/library")
+      {:ok, view, _html} = live(conn, "/library")
 
       # Progress should be 30% (3 out of 10)
-      assert html =~ "30%"
+      assert has_element?(view, ".library-item.database .completion-badge", "30%")
     end
 
     test "shows 0% progress when no sentences read", %{conn: conn} do
@@ -99,9 +96,9 @@ defmodule LexWeb.LibraryLive.IndexTest do
         create_sentence(section, i, "Sentence #{i}")
       end
 
-      {:ok, _view, html} = live(conn, "/library")
+      {:ok, view, _html} = live(conn, "/library")
 
-      assert html =~ "0%"
+      assert has_element?(view, ".library-item.database .completion-badge", "0%")
     end
 
     test "shows 100% progress when all sentences read", %{conn: conn} do
@@ -119,48 +116,52 @@ defmodule LexWeb.LibraryLive.IndexTest do
         mark_sentence_read(user, sentence)
       end
 
-      {:ok, _view, html} = live(conn, "/library")
+      {:ok, view, _html} = live(conn, "/library")
 
-      assert html =~ "100%"
+      assert has_element?(view, ".library-item.database .completion-badge", "100%")
     end
 
     test "clicking read button navigates to reader", %{conn: conn} do
       user = create_user()
-      _document = create_ready_document(user)
+      document = create_ready_document(user)
 
       {:ok, view, _html} = live(conn, "/library")
 
-      # Verify the library-item has the read button with navigate handler
-      html = render(view)
-      assert html =~ "library-item"
-      assert html =~ "phx-click=\"navigate_to_reader\""
+      view
+      |> element("button[phx-click='navigate_to_reader'][phx-value-document_id='#{document.id}']")
+      |> render_click()
+
+      assert_redirect(view, "/read/#{document.id}")
     end
 
     test "shows imported badge for imported items", %{conn: conn} do
       user = create_user()
       _document = create_ready_document(user)
 
-      {:ok, _view, html} = live(conn, "/library")
+      {:ok, view, _html} = live(conn, "/library")
 
-      assert html =~ "source-badge imported"
-      assert html =~ "Imported"
-      assert html =~ "library-item database"
+      assert has_element?(view, ".library-item.database.imported .source-badge.imported-badge")
     end
 
     test "shows import button for not_imported items", %{conn: conn} do
       # Test the import button appears when item has not_imported status
-      {:ok, _view, html} = live(conn, "/library")
+      {:ok, view, _html} = live(conn, "/library")
 
       # When there are no items, we should see empty state
-      assert html =~ "No documents found."
+      assert has_element?(view, ".empty-state")
 
       # Add a document and verify it shows as imported (Read button)
       user = create_user()
       _document = create_ready_document(user)
 
-      {:ok, _view2, html} = live(conn, "/library")
-      assert html =~ "Read"
-      assert html =~ "imported-badge"
+      {:ok, view2, _html} = live(conn, "/library")
+
+      assert has_element?(
+               view2,
+               ".library-item.database .item-cover-action[phx-click='navigate_to_reader']"
+             )
+
+      assert has_element?(view2, ".library-item.database .imported-badge")
     end
   end
 
@@ -168,10 +169,10 @@ defmodule LexWeb.LibraryLive.IndexTest do
     test "auto-opens on first app load when no users exist", %{conn: conn} do
       assert Repo.aggregate(User, :count, :id) == 0
 
-      {:ok, _view, html} = live(conn, "/library")
+      {:ok, view, _html} = live(conn, "/library")
 
-      assert html =~ "Finish profile setup"
-      assert html =~ "Target languages"
+      assert has_element?(view, ".profile-setup-modal")
+      assert has_element?(view, "fieldset legend", "Target languages")
     end
 
     test "shows validation errors for invalid email and missing target languages", %{conn: conn} do
@@ -182,15 +183,16 @@ defmodule LexWeb.LibraryLive.IndexTest do
           "profile" => %{"name" => "Default User", "email" => "invalid-email"}
         })
 
-      assert html =~ "must have the @ sign and no spaces"
-      assert html =~ "select at least one target language"
-      assert html =~ "Finish profile setup"
+      assert html =~ "profile-setup-error"
+      assert has_element?(view, ".profile-setup-modal")
+      assert Repo.aggregate(User, :count, :id) == 0
+      assert Repo.aggregate(UserTargetLanguage, :count, :id) == 0
     end
 
     test "creates the first user and target languages on valid save", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/library")
 
-      html =
+      _html =
         render_submit(view, "save_profile_setup", %{
           "profile" => %{
             "name" => "Reader One",
@@ -199,7 +201,7 @@ defmodule LexWeb.LibraryLive.IndexTest do
           }
         })
 
-      refute html =~ "Finish profile setup"
+      refute has_element?(view, ".profile-setup-modal")
 
       user = Repo.get_by!(User, email: "reader.one@example.com")
       assert user.name == "Reader One"
@@ -226,9 +228,9 @@ defmodule LexWeb.LibraryLive.IndexTest do
           }
         })
 
-      {:ok, _new_view, html} = live(conn, "/library")
+      {:ok, new_view, _html} = live(conn, "/library")
 
-      refute html =~ "Finish profile setup"
+      refute has_element?(new_view, ".profile-setup-modal")
     end
   end
 
@@ -241,8 +243,7 @@ defmodule LexWeb.LibraryLive.IndexTest do
       send(view.pid, {:import_started, file_path, 1})
 
       # The page should handle the message without crashing
-      html = render(view)
-      assert html =~ "My Library"
+      assert has_element?(view, ".library-container")
     end
 
     test "updates UI when import_completed message received", %{conn: conn} do
@@ -256,9 +257,7 @@ defmodule LexWeb.LibraryLive.IndexTest do
       # Send import_completed message
       send(view.pid, {:import_completed, file_path, document.id, user.id})
 
-      # The page should handle the message without crashing
-      html = render(view)
-      assert html =~ "My Library"
+      assert has_element?(view, ".library-container")
     end
 
     test "updates UI when import_failed message received", %{conn: conn} do
@@ -268,9 +267,7 @@ defmodule LexWeb.LibraryLive.IndexTest do
       file_path = "/test/book.epub"
       send(view.pid, {:import_failed, file_path, "EPUB parsing failed", 1})
 
-      # The page should handle the message without crashing
-      html = render(view)
-      assert html =~ "My Library"
+      assert has_element?(view, ".library-container")
     end
 
     test "shows chapter-based import progress details", %{conn: conn} do
@@ -292,9 +289,13 @@ defmodule LexWeb.LibraryLive.IndexTest do
 
         send(view.pid, {:import_progress, file_path, 42, "Processing chapter 2 of 5", 1})
 
-        html = render(view)
-        assert html =~ "Processing chapter 2 of 5"
-        assert html =~ "42%"
+        assert has_element?(
+                 view,
+                 ".importing-indicator .status-text",
+                 "Processing chapter 2 of 5"
+               )
+
+        assert has_element?(view, ".importing-indicator .import-percent", "42%")
       after
         Application.put_env(:lex, :calibre_library_path, original_path)
         File.rm_rf(temp_root)
@@ -307,9 +308,9 @@ defmodule LexWeb.LibraryLive.IndexTest do
       {:ok, view, _html} = live(conn, "/library")
 
       # Click refresh button
-      html = view |> element("button[phx-click='refresh_calibre']") |> render_click()
+      _html = view |> element("button[phx-click='refresh_calibre']") |> render_click()
 
-      assert html =~ "My Library"
+      assert has_element?(view, "button.refresh-btn[disabled]")
     end
 
     test "refresh button is debounced", %{conn: conn} do
@@ -319,9 +320,7 @@ defmodule LexWeb.LibraryLive.IndexTest do
       view |> element("button[phx-click='refresh_calibre']") |> render_click()
 
       # Button should now be disabled
-      html = render(view)
-      assert html =~ "Refreshing library"
-      assert html =~ "disabled"
+      assert has_element?(view, "button.refresh-btn[disabled]")
     end
 
     test "refresh debounce is cleared after timer", %{conn: conn} do
@@ -329,16 +328,13 @@ defmodule LexWeb.LibraryLive.IndexTest do
 
       # First click enables debounce
       view |> element("button[phx-click='refresh_calibre']") |> render_click()
-      html = render(view)
-      assert html =~ "Refreshing library"
+      assert has_element?(view, "button.refresh-btn[disabled]")
 
       # Send the clear debounce message directly
       send(view.pid, :clear_refresh_debounce)
 
       # Button should be enabled again
-      html = render(view)
-      assert html =~ "Refresh library"
-      refute html =~ "disabled"
+      refute has_element?(view, "button.refresh-btn[disabled]")
     end
   end
 
@@ -349,12 +345,12 @@ defmodule LexWeb.LibraryLive.IndexTest do
 
       # The handler should work even if the file doesn't exist
       # (it will mark as importing via PubSub)
-      html =
+      _html =
         view
         |> element("button[phx-click='refresh_calibre']")
         |> render_click()
 
-      assert html =~ "My Library"
+      assert has_element?(view, "button[phx-click='refresh_calibre']")
     end
   end
 
@@ -365,9 +361,7 @@ defmodule LexWeb.LibraryLive.IndexTest do
       file_path = "/test/book.epub"
       send(view.pid, {:import_started, file_path, 1})
 
-      # The page should handle the message without crashing
-      html = render(view)
-      assert html =~ "My Library"
+      assert has_element?(view, ".library-container")
     end
 
     test "handle_info updates UI when import_completed received", %{conn: conn} do
@@ -384,8 +378,7 @@ defmodule LexWeb.LibraryLive.IndexTest do
       # Then send completion
       send(view.pid, {:import_completed, file_path, document.id, user.id})
 
-      html = render(view)
-      assert html =~ "My Library"
+      assert has_element?(view, ".library-container")
     end
 
     test "handle_info updates UI when import_failed received", %{conn: conn} do
@@ -396,8 +389,7 @@ defmodule LexWeb.LibraryLive.IndexTest do
       # Send failure message directly
       send(view.pid, {:import_failed, file_path, "EPUB parsing failed", 1})
 
-      html = render(view)
-      assert html =~ "My Library"
+      assert has_element?(view, ".library-container")
     end
 
     test "handle_info clears refresh debounce", %{conn: conn} do
@@ -409,9 +401,7 @@ defmodule LexWeb.LibraryLive.IndexTest do
       # Send clear message
       send(view.pid, :clear_refresh_debounce)
 
-      html = render(view)
-      assert html =~ "Refresh library"
-      refute html =~ "disabled"
+      refute has_element?(view, "button.refresh-btn[disabled]")
     end
   end
 
@@ -427,12 +417,11 @@ defmodule LexWeb.LibraryLive.IndexTest do
       Application.put_env(:lex, :calibre_library_path, "/nonexistent/calibre/path/test")
 
       try do
-        {:ok, _view, html} = live(conn, "/library")
+        {:ok, view, _html} = live(conn, "/library")
 
         # Should still show the database document
-        assert html =~ document.title
-        # Should not show calibre notice when path unavailable
-        refute html =~ "Calibre library connected"
+        assert has_element?(view, ".library-item.database .item-title", document.title)
+        refute has_element?(view, ".library-item.calibre")
       after
         Application.put_env(:lex, :calibre_library_path, original_path)
       end
@@ -446,12 +435,9 @@ defmodule LexWeb.LibraryLive.IndexTest do
       create_document_with_title(user, "Apple Book")
       create_document_with_title(user, "Mango Book")
 
-      {:ok, _view, html} = live(conn, "/library")
+      {:ok, view, _html} = live(conn, "/library")
 
-      # All three should be present
-      assert html =~ "Zebra Book"
-      assert html =~ "Apple Book"
-      assert html =~ "Mango Book"
+      assert item_titles(view) == ["Apple Book", "Mango Book", "Zebra Book"]
     end
 
     test "groups items under author headers", %{conn: conn} do
@@ -690,5 +676,13 @@ defmodule LexWeb.LibraryLive.IndexTest do
       )
 
     File.rm_rf!(temp_dir)
+  end
+
+  defp item_titles(view) do
+    view
+    |> render()
+    |> Floki.parse_document!()
+    |> Floki.find(".library-item .item-title")
+    |> Enum.map(fn item -> item |> Floki.text() |> String.trim() end)
   end
 end

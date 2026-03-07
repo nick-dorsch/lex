@@ -26,12 +26,15 @@ defmodule LexWeb.ReaderLive.ShowTest do
       sentence = create_sentence(section, 1, "This is a test sentence.")
       create_tokens_for_sentence(sentence, ["This", "is", "a", "test", "sentence", "."])
 
-      {:ok, _view, html} = live(conn, "/read/#{document.id}")
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
-      assert html =~ "This"
-      assert html =~ "is"
-      assert html =~ "test"
-      assert html =~ section.title
+      assert has_element?(view, ".reader-footer-section", section.title)
+      assert has_element?(view, ".current-sentence .token[data-token-index='1']")
+
+      assert has_element?(
+               view,
+               ".current-sentence .token[data-token-index='6'][data-selectable='false']"
+             )
     end
 
     test "redirects to library for invalid document_id", %{conn: conn} do
@@ -45,12 +48,14 @@ defmodule LexWeb.ReaderLive.ShowTest do
       sentence = create_sentence(section, 1, "It was the best of times.")
       create_tokens_for_sentence(sentence, ["It", "was", "the", "best", "of", "times", "."])
 
-      {:ok, _view, html} = live(conn, "/read/#{document.id}")
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
-      assert html =~ "Chapter 1: The Beginning"
-      assert html =~ "It"
-      assert html =~ "was"
-      assert html =~ "best"
+      assert has_element?(view, ".reader-footer-section", "Chapter 1: The Beginning")
+
+      assert has_element?(
+               view,
+               ".current-sentence .token[data-token-index='7'][data-selectable='false']"
+             )
     end
 
     test "shows empty state when document has no sentences", %{conn: conn} do
@@ -58,9 +63,9 @@ defmodule LexWeb.ReaderLive.ShowTest do
       document = create_ready_document(user)
       _section = create_section(document)
 
-      {:ok, _view, html} = live(conn, "/read/#{document.id}")
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
-      assert html =~ "No content available for this document."
+      assert has_element?(view, ".empty-state .reader-hint")
     end
 
     test "shows untitled section when section has no title", %{conn: conn} do
@@ -79,11 +84,14 @@ defmodule LexWeb.ReaderLive.ShowTest do
         "."
       ])
 
-      {:ok, _view, html} = live(conn, "/read/#{document.id}")
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
-      assert html =~ "Untitled Section"
-      assert html =~ "sentence"
-      assert html =~ "untitled"
+      assert has_element?(view, ".reader-footer-section", "Untitled Section")
+
+      assert has_element?(
+               view,
+               ".current-sentence .token[data-token-index='7'][data-selectable='false']"
+             )
     end
 
     test "j navigation advances by one sentence", %{conn: conn} do
@@ -101,14 +109,12 @@ defmodule LexWeb.ReaderLive.ShowTest do
 
       {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
-      current_sentence_html = view |> element(".current-sentence") |> render()
-      assert current_sentence_html =~ "First"
-      refute current_sentence_html =~ "Second"
+      assert_current_sentence(view, sentence_1.text)
+      refute_current_sentence(view, sentence_2.text)
 
       _html = render_hook(view, "key_nav", %{"key" => "j"})
-      current_sentence_html = view |> element(".current-sentence") |> render()
-      assert current_sentence_html =~ "Second"
-      refute current_sentence_html =~ "Third"
+      assert_current_sentence(view, sentence_2.text)
+      refute_current_sentence(view, sentence_3.text)
     end
   end
 
@@ -318,8 +324,7 @@ defmodule LexWeb.ReaderLive.ShowTest do
       Process.sleep(500)
 
       # Should show error message (using the class name)
-      popup_html = view |> element("[data-testid=\"llm-popup\"]") |> render()
-      assert popup_html =~ "class=\"llm-popup-error\""
+      assert has_element?(view, "[data-testid='llm-popup'] .llm-popup-error")
 
       # Clean up
       Lex.LLM.ClientMock.clear_mock()
@@ -465,8 +470,7 @@ defmodule LexWeb.ReaderLive.ShowTest do
       Process.sleep(500)
 
       # Verify error is displayed
-      popup_html = view |> element("[data-testid=\"llm-popup\"]") |> render()
-      assert popup_html =~ "class=\"llm-popup-error\""
+      assert has_element?(view, "[data-testid='llm-popup'] .llm-popup-error")
 
       # Clean up
       Lex.LLM.ClientMock.clear_mock()
@@ -493,8 +497,7 @@ defmodule LexWeb.ReaderLive.ShowTest do
       Process.sleep(500)
 
       # Verify error is displayed
-      popup_html = view |> element("[data-testid=\"llm-popup\"]") |> render()
-      assert popup_html =~ "class=\"llm-popup-error\""
+      assert has_element?(view, "[data-testid='llm-popup'] .llm-popup-error")
 
       # Clean up
       Lex.LLM.ClientMock.clear_mock()
@@ -515,9 +518,8 @@ defmodule LexWeb.ReaderLive.ShowTest do
       {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
       # Verify first sentence is displayed
-      current_sentence_html = view |> element(".current-sentence") |> render()
-      assert current_sentence_html =~ "First"
-      refute current_sentence_html =~ "Second"
+      assert_current_sentence(view, sentence_1.text)
+      refute_current_sentence(view, sentence_2.text)
 
       # Focus a token and show popup
       _html = render_hook(view, "key_nav", %{"key" => "w"})
@@ -533,9 +535,8 @@ defmodule LexWeb.ReaderLive.ShowTest do
       refute view |> has_element?("[data-testid=\"llm-popup\"]")
 
       # Verify navigated to second sentence
-      current_sentence_html = view |> element(".current-sentence") |> render()
-      assert current_sentence_html =~ "Second"
-      refute current_sentence_html =~ "First"
+      assert_current_sentence(view, sentence_2.text)
+      refute_current_sentence(view, sentence_1.text)
 
       # Clean up
       Lex.LLM.ClientMock.clear_mock()
@@ -559,9 +560,8 @@ defmodule LexWeb.ReaderLive.ShowTest do
       _html = render_hook(view, "key_nav", %{"key" => "j"})
 
       # Verify second sentence is displayed
-      current_sentence_html = view |> element(".current-sentence") |> render()
-      assert current_sentence_html =~ "Second"
-      refute current_sentence_html =~ "First"
+      assert_current_sentence(view, sentence_2.text)
+      refute_current_sentence(view, sentence_1.text)
 
       # Focus a token and show popup
       _html = render_hook(view, "key_nav", %{"key" => "w"})
@@ -577,9 +577,8 @@ defmodule LexWeb.ReaderLive.ShowTest do
       refute view |> has_element?("[data-testid=\"llm-popup\"]")
 
       # Verify navigated back to first sentence
-      current_sentence_html = view |> element(".current-sentence") |> render()
-      assert current_sentence_html =~ "First"
-      refute current_sentence_html =~ "Second"
+      assert_current_sentence(view, sentence_1.text)
+      refute_current_sentence(view, sentence_2.text)
 
       # Clean up
       Lex.LLM.ClientMock.clear_mock()
@@ -661,9 +660,8 @@ defmodule LexWeb.ReaderLive.ShowTest do
       {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
       # Verify first sentence is displayed (popup is NOT open)
-      current_sentence_html = view |> element(".current-sentence") |> render()
-      assert current_sentence_html =~ "First"
-      refute current_sentence_html =~ "Second"
+      assert_current_sentence(view, sentence_1.text)
+      refute_current_sentence(view, sentence_2.text)
 
       refute view |> has_element?("[data-testid='llm-popup']")
 
@@ -671,9 +669,8 @@ defmodule LexWeb.ReaderLive.ShowTest do
       _html = render_hook(view, "key_nav", %{"key" => "j"})
 
       # Verify navigated successfully
-      current_sentence_html = view |> element(".current-sentence") |> render()
-      assert current_sentence_html =~ "Second"
-      refute current_sentence_html =~ "First"
+      assert_current_sentence(view, sentence_2.text)
+      refute_current_sentence(view, sentence_1.text)
 
       # Still no popup
       refute view |> has_element?("[data-testid='llm-popup']")
@@ -702,9 +699,11 @@ defmodule LexWeb.ReaderLive.ShowTest do
       refute view |> has_element?("[data-testid='llm-popup']")
 
       # Get token class before space press
-      current_sentence_html = view |> element(".current-sentence") |> render()
       # Token starts with default status styling
-      assert current_sentence_html =~ "token-default"
+      assert has_element?(
+               view,
+               ".current-sentence .token[data-token-index='4'][data-token-status='unknown'].token-default"
+             )
 
       # Press space to set learning and open popup
       _html = render_hook(view, "key_nav", %{"key" => "space"})
@@ -713,8 +712,10 @@ defmodule LexWeb.ReaderLive.ShowTest do
       assert view |> has_element?("[data-testid='llm-popup']")
 
       # Verify word is now learning - check for token-learning class
-      current_sentence_html = view |> element(".current-sentence") |> render()
-      assert current_sentence_html =~ "token-learning"
+      assert has_element?(
+               view,
+               ".current-sentence .token[data-token-index='4'][data-token-status='learning'].token-learning"
+             )
 
       # Clean up
       Lex.LLM.ClientMock.clear_mock()
@@ -741,8 +742,11 @@ defmodule LexWeb.ReaderLive.ShowTest do
 
       # Verify popup is visible and word is learning
       assert view |> has_element?("[data-testid='llm-popup']")
-      current_sentence_html = view |> element(".current-sentence") |> render()
-      assert current_sentence_html =~ "token-learning"
+
+      assert has_element?(
+               view,
+               ".current-sentence .token[data-token-index='4'][data-token-status='learning'].token-learning"
+             )
 
       # Press space again to set known and close popup
       _html = render_hook(view, "key_nav", %{"key" => "space"})
@@ -752,8 +756,10 @@ defmodule LexWeb.ReaderLive.ShowTest do
 
       # Verify word is now known - check that learning class is gone
       # Known words don't have a special class, they use default styling
-      current_sentence_html = view |> element(".current-sentence") |> render()
-      refute current_sentence_html =~ "token-learning"
+      assert has_element?(
+               view,
+               ".current-sentence .token[data-token-index='4'][data-token-status='known'].token-default"
+             )
 
       # Clean up
       Lex.LLM.ClientMock.clear_mock()
@@ -782,21 +788,29 @@ defmodule LexWeb.ReaderLive.ShowTest do
       # After first space: learning + popup open
       _html = render_hook(view, "key_nav", %{"key" => "space"})
       assert view |> has_element?("[data-testid='llm-popup']")
-      current_sentence_html = view |> element(".current-sentence") |> render()
-      assert current_sentence_html =~ "token-learning"
+
+      assert has_element?(
+               view,
+               ".current-sentence .token[data-token-index='4'][data-token-status='learning'].token-learning"
+             )
 
       # After second space: known + popup closed
       _html = render_hook(view, "key_nav", %{"key" => "space"})
       refute view |> has_element?("[data-testid='llm-popup']")
-      current_sentence_html = view |> element(".current-sentence") |> render()
       # Known words use default styling (no special class)
-      refute current_sentence_html =~ "token-learning"
+      assert has_element?(
+               view,
+               ".current-sentence .token[data-token-index='4'][data-token-status='known'].token-default"
+             )
 
       # After third space: learning again + popup open
       _html = render_hook(view, "key_nav", %{"key" => "space"})
       assert view |> has_element?("[data-testid='llm-popup']")
-      current_sentence_html = view |> element(".current-sentence") |> render()
-      assert current_sentence_html =~ "token-learning"
+
+      assert has_element?(
+               view,
+               ".current-sentence .token[data-token-index='4'][data-token-status='learning'].token-learning"
+             )
 
       # Clean up
       Lex.LLM.ClientMock.clear_mock()
@@ -820,9 +834,12 @@ defmodule LexWeb.ReaderLive.ShowTest do
 
       # Should not crash - view is still functional
       # Verify view is still working by checking sentence is still displayed
-      current_sentence_html = view |> element(".current-sentence") |> render()
-      assert current_sentence_html =~ "This"
-      assert current_sentence_html =~ "test"
+      assert has_element?(view, ".current-sentence .token[data-token-index='1']")
+
+      assert has_element?(
+               view,
+               ".current-sentence .token[data-token-index='5'][data-selectable='false']"
+             )
 
       # Popup should show sentence-level help placeholder (no focused token)
       assert view |> has_element?("[data-testid='llm-popup']")
@@ -832,6 +849,35 @@ defmodule LexWeb.ReaderLive.ShowTest do
   end
 
   # Helper functions for creating test data
+
+  defp assert_current_sentence(view, sentence_text) do
+    current_sentence_text =
+      view
+      |> element(".current-sentence")
+      |> render()
+      |> normalized_sentence_text()
+
+    assert current_sentence_text =~ normalized_sentence_text(sentence_text)
+  end
+
+  defp refute_current_sentence(view, sentence_text) do
+    current_sentence_text =
+      view
+      |> element(".current-sentence")
+      |> render()
+      |> normalized_sentence_text()
+
+    refute current_sentence_text =~ normalized_sentence_text(sentence_text)
+  end
+
+  defp normalized_sentence_text(text) do
+    text
+    |> Floki.parse_fragment!()
+    |> Floki.text(sep: " ")
+    |> String.replace(~r/\s+/, " ")
+    |> String.replace(~r/\s+([[:punct:]])/, "\\1")
+    |> String.trim()
+  end
 
   defp create_user do
     %User{}
