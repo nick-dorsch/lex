@@ -228,10 +228,10 @@ defmodule LexWeb.ReaderLive.StateTransitionsTest do
       Repo.delete_all(ReadingEvent)
 
       # Try to advance (should fail silently)
-      html = render_hook(view, :key_nav, %{"key" => "j"})
+      _html = render_hook(view, :key_nav, %{"key" => "j"})
 
       # Should still show the same sentence
-      assert html =~ "Only"
+      assert has_element?(view, ".reader-footer-section", section.title)
 
       # Should not have logged an advance event
       count =
@@ -647,7 +647,7 @@ defmodule LexWeb.ReaderLive.StateTransitionsTest do
 
       # Focus token and press space (popup closed)
       render_hook(view, :key_nav, %{"key" => "w"})
-      html = render_hook(view, :key_nav, %{"key" => "space"})
+      _html = render_hook(view, :key_nav, %{"key" => "space"})
 
       # Verify word is set to learning
       state = Repo.one(UserLexemeState)
@@ -655,7 +655,7 @@ defmodule LexWeb.ReaderLive.StateTransitionsTest do
       assert state.learning_since != nil
 
       # Verify popup is open
-      assert html =~ "llm-popup"
+      assert has_element?(view, "[data-testid='llm-popup']")
     end
 
     test "space (popup open) sets word to known and closes popup", %{conn: conn} do
@@ -684,11 +684,11 @@ defmodule LexWeb.ReaderLive.StateTransitionsTest do
 
       # Focus token, press space to open popup (sets to learning)
       render_hook(view, :key_nav, %{"key" => "w"})
-      html = render_hook(view, :key_nav, %{"key" => "space"})
-      assert html =~ "llm-popup"
+      _html = render_hook(view, :key_nav, %{"key" => "space"})
+      assert has_element?(view, "[data-testid='llm-popup']")
 
       # Press space again (popup open) - should set to known and close
-      html = render_hook(view, :key_nav, %{"key" => "space"})
+      _html = render_hook(view, :key_nav, %{"key" => "space"})
 
       # Verify word is set to known
       state = Repo.one(UserLexemeState)
@@ -696,7 +696,7 @@ defmodule LexWeb.ReaderLive.StateTransitionsTest do
       assert state.known_at != nil
 
       # Verify popup is closed
-      refute html =~ "llm-popup"
+      refute has_element?(view, "[data-testid='llm-popup']")
     end
   end
 

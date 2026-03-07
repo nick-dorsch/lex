@@ -19,13 +19,15 @@ defmodule LexWeb.StatsLive.IndexTest do
 
       create_lexeme_state(user, "seen", ~U[2026-01-02 12:00:00Z], nil, nil)
 
-      {:ok, _view, html} = live(conn, "/stats")
+      {:ok, view, _html} = live(conn, "/stats")
 
-      assert html =~ "Reading Timeline"
-      assert html =~ "Lexeme growth chart"
-      assert html =~ "Words - Read"
-      assert html =~ "Lex. - Read"
-      assert html =~ ">1<"
+      assert has_element?(view, ".stats-chart")
+      assert has_element?(view, ".stats-chart .series.words-read")
+      assert has_element?(view, ".stats-chart .series.known")
+      assert has_element?(view, ".stats-chart .series.learning")
+
+      chart_labels = grid_label_values(render(view))
+      assert Enum.max(chart_labels) == 1
     end
 
     test "renders vocabulary counts, chart, and book progress", %{conn: conn} do
@@ -77,38 +79,29 @@ defmodule LexWeb.StatsLive.IndexTest do
       create_sentence_tokens(Enum.at(completed_sentences, 1), ["three", "four", "."])
       create_sentence_tokens(Enum.at(completed_sentences, 2), ["five", "six", "?"])
 
-      {:ok, _view, html} = live(conn, "/stats")
+      {:ok, view, _html} = live(conn, "/stats")
 
-      assert html =~ "Statistics"
-      assert html =~ "Library"
-      assert html =~ "Words - Read"
-      assert html =~ "Lex. - Read"
-      assert html =~ "Lex. - Learning"
-      assert html =~ "Lex. - Known"
-      assert html =~ ">10<"
-      assert html =~ ">2<"
-      assert html =~ ">1<"
-      assert html =~ "Reading Timeline"
-      assert html =~ "Lexeme growth chart"
+      assert stats_card_values(render(view)) == [10, 2, 1, 1]
 
-      assert html =~ "In Progress"
-      assert html =~ "In Progress Book"
-      assert html =~ "2/4 sentences"
+      assert has_element?(view, ".book-progress-row .book-title", "In Progress Book")
+      assert has_element?(view, ".book-progress-row .book-meta", "2/4 sentences")
 
-      assert html =~ "Completed"
-      assert html =~ "Completed Book"
-      assert html =~ "3 sentences read"
+      assert has_element?(view, ".book-completed-row .book-title", "Completed Book")
+      assert has_element?(view, ".book-completed-row .book-meta", "3 sentences read")
+
+      refute has_element?(view, ".book-progress-row .book-title", "Completed Book")
+      refute has_element?(view, ".book-completed-row .book-title", "In Progress Book")
     end
 
     test "renders empty states when user has no activity", %{conn: conn} do
       _user = create_user()
 
-      {:ok, _view, html} = live(conn, "/stats")
+      {:ok, view, _html} = live(conn, "/stats")
 
-      assert html =~ "No reading activity yet."
-      assert html =~ "No books in progress."
-      assert html =~ "No books completed yet."
-      assert html =~ ">0<"
+      refute has_element?(view, ".stats-chart")
+      refute has_element?(view, ".book-progress-row")
+      refute has_element?(view, ".book-completed-row")
+      assert stats_card_values(render(view)) == [0, 0, 0, 0]
     end
 
     test "toggles chart series from legend and rescales y axis", %{conn: conn} do
@@ -127,9 +120,9 @@ defmodule LexWeb.StatsLive.IndexTest do
         Enum.map(1..30, fn idx -> "word#{idx}" end)
       )
 
-      {:ok, view, html} = live(conn, "/stats")
+      {:ok, view, _html} = live(conn, "/stats")
 
-      assert html =~ "class=\"grid-label\">30<"
+      assert Enum.max(grid_label_values(render(view))) == 30
       assert has_element?(view, ".stats-chart .series.words-read")
       refute has_element?(view, ".stats-legend .legend-toggle[phx-value-series='learning']")
       refute has_element?(view, ".stats-legend .legend-toggle[phx-value-series='known']")
@@ -139,8 +132,7 @@ defmodule LexWeb.StatsLive.IndexTest do
       |> render_click()
 
       refute has_element?(view, ".stats-chart .series.words-read")
-      refute render(view) =~ "class=\"grid-label\">30<"
-      assert render(view) =~ "class=\"grid-label\">1<"
+      assert Enum.max(grid_label_values(render(view))) == 1
 
       assert has_element?(
                view,
@@ -253,6 +245,30 @@ defmodule LexWeb.StatsLive.IndexTest do
         is_punctuation: punctuation?
       })
       |> Repo.insert!()
+    end)
+  end
+
+  defp stats_card_values(html) do
+    html
+    |> Floki.parse_document!()
+    |> Floki.find(".stats-cards .stats-value")
+    |> Enum.map(fn card ->
+      card
+      |> Floki.text()
+      |> String.trim()
+      |> String.to_integer()
+    end)
+  end
+
+  defp grid_label_values(html) do
+    html
+    |> Floki.parse_document!()
+    |> Floki.find(".stats-chart .grid-label")
+    |> Enum.map(fn label ->
+      label
+      |> Floki.text()
+      |> String.trim()
+      |> String.to_integer()
     end)
   end
 end

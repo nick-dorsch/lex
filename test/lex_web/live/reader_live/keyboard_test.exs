@@ -140,13 +140,11 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
       # Initially no token should have focus ring
-      html = render(view)
-      refute html =~ "token-focused"
+      refute has_element?(view, ".current-sentence .token.token-focused")
 
       # Press 'w' to focus first token
-      html = render_hook(view, :key_nav, %{"key" => "w"})
-      assert html =~ "token-focused"
-      assert html =~ "First"
+      _html = render_hook(view, :key_nav, %{"key" => "w"})
+      assert_focused_token(view, 1)
     end
 
     test "'w' key moves focus to next token", %{conn: conn} do
@@ -162,8 +160,8 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       render_hook(view, :key_nav, %{"key" => "w"})
 
       # Move to second token
-      html = render_hook(view, :key_nav, %{"key" => "w"})
-      assert html =~ "second"
+      _html = render_hook(view, :key_nav, %{"key" => "w"})
+      assert_focused_token(view, 2)
     end
 
     test "'w' key wraps to first token when at last token", %{conn: conn} do
@@ -180,8 +178,8 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       render_hook(view, :key_nav, %{"key" => "w"})
 
       # Wrap to first token
-      html = render_hook(view, :key_nav, %{"key" => "w"})
-      assert html =~ "First"
+      _html = render_hook(view, :key_nav, %{"key" => "w"})
+      assert_focused_token(view, 1)
     end
 
     test "navigation skips punctuation tokens", %{conn: conn} do
@@ -194,12 +192,12 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
       # First selectable token
-      html = render_hook(view, :key_nav, %{"key" => "w"})
-      assert html =~ "First"
+      _html = render_hook(view, :key_nav, %{"key" => "w"})
+      assert_focused_token(view, 1)
 
       # Should skip comma and focus "second"
-      html = render_hook(view, :key_nav, %{"key" => "w"})
-      assert html =~ "second"
+      _html = render_hook(view, :key_nav, %{"key" => "w"})
+      assert_focused_token(view, 3)
     end
 
     test "'b' key focuses last token when no token is focused", %{conn: conn} do
@@ -212,9 +210,8 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
       # Press 'b' to focus last token
-      html = render_hook(view, :key_nav, %{"key" => "b"})
-      assert html =~ "token-focused"
-      assert html =~ "third"
+      _html = render_hook(view, :key_nav, %{"key" => "b"})
+      assert_focused_token(view, 3)
     end
 
     test "'b' key moves focus to previous token", %{conn: conn} do
@@ -230,8 +227,8 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       render_hook(view, :key_nav, %{"key" => "b"})
 
       # Move to previous token
-      html = render_hook(view, :key_nav, %{"key" => "b"})
-      assert html =~ "second"
+      _html = render_hook(view, :key_nav, %{"key" => "b"})
+      assert_focused_token(view, 2)
     end
 
     test "'b' key wraps to last token when at first token", %{conn: conn} do
@@ -247,8 +244,8 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       render_hook(view, :key_nav, %{"key" => "w"})
 
       # Wrap to last token
-      html = render_hook(view, :key_nav, %{"key" => "b"})
-      assert html =~ "third"
+      _html = render_hook(view, :key_nav, %{"key" => "b"})
+      assert_focused_token(view, 3)
     end
 
     test "'W' key jumps to next non-known token", %{conn: conn} do
@@ -302,14 +299,14 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
       # Focus a token in first sentence
-      html = render_hook(view, :key_nav, %{"key" => "w"})
-      assert html =~ "token-focused"
+      _html = render_hook(view, :key_nav, %{"key" => "w"})
+      assert_focused_token(view, 1)
 
       # Navigate to next sentence
-      html = render_hook(view, :key_nav, %{"key" => "j"})
+      _html = render_hook(view, :key_nav, %{"key" => "j"})
 
       # Focus should be reset (no ring)
-      refute html =~ "token-focused"
+      refute has_element?(view, ".current-sentence .token.token-focused")
     end
 
     test "focus resets when navigating to previous sentence", %{conn: conn} do
@@ -327,14 +324,14 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       render_hook(view, :key_nav, %{"key" => "j"})
 
       # Focus a token in second sentence
-      html = render_hook(view, :key_nav, %{"key" => "w"})
-      assert html =~ "token-focused"
+      _html = render_hook(view, :key_nav, %{"key" => "w"})
+      assert_focused_token(view, 1)
 
       # Navigate back to first sentence
-      html = render_hook(view, :key_nav, %{"key" => "k"})
+      _html = render_hook(view, :key_nav, %{"key" => "k"})
 
       # Focus should be reset (no ring)
-      refute html =~ "token-focused"
+      refute has_element?(view, ".current-sentence .token.token-focused")
     end
   end
 
@@ -349,18 +346,18 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       create_tokens_for_sentence(sentence1, ["First", "chapter", "sentence", "."])
       create_tokens_for_sentence(sentence2, ["Second", "chapter", "sentence", "."])
 
-      {:ok, view, html} = live(conn, "/read/#{document.id}")
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
       # Initially showing chapter 1
-      assert html =~ "Chapter 1"
-      assert html =~ "First"
+      assert_current_section(view, section1.title)
+      assert_current_sentence(view, sentence1.text)
 
       # Press 's' to skip to next section
-      html = render_hook(view, :key_nav, %{"key" => "s"})
+      _html = render_hook(view, :key_nav, %{"key" => "s"})
 
       # Should now show chapter 2
-      assert html =~ "Chapter 2"
-      assert html =~ "Second"
+      assert_current_section(view, section2.title)
+      assert_current_sentence(view, sentence2.text)
     end
 
     test "clicking skip section button navigates to next section", %{conn: conn} do
@@ -373,18 +370,18 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       create_tokens_for_sentence(sentence1, ["First", "chapter", "sentence", "."])
       create_tokens_for_sentence(sentence2, ["Second", "chapter", "sentence", "."])
 
-      {:ok, view, html} = live(conn, "/read/#{document.id}")
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
       # Initially showing chapter 1
-      assert html =~ "Chapter 1"
-      assert html =~ "First"
+      assert_current_section(view, section1.title)
+      assert_current_sentence(view, sentence1.text)
 
       # Click skip section button
-      html = render_click(view, :skip_section)
+      _html = render_click(view, :skip_section)
 
       # Should now show chapter 2
-      assert html =~ "Chapter 2"
-      assert html =~ "Second"
+      assert_current_section(view, section2.title)
+      assert_current_sentence(view, sentence2.text)
     end
 
     test "skip section at last section stays at current position", %{conn: conn} do
@@ -394,18 +391,18 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       sentence = create_sentence(section, 1, "Only sentence.")
       create_tokens_for_sentence(sentence, ["Only", "sentence", "."])
 
-      {:ok, view, html} = live(conn, "/read/#{document.id}")
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
       # Initially showing the only chapter
-      assert html =~ "Only Chapter"
-      assert html =~ "Only"
+      assert_current_section(view, section.title)
+      assert_current_sentence(view, sentence.text)
 
       # Press 's' to try to skip - should stay at current position
-      html = render_hook(view, :key_nav, %{"key" => "s"})
+      _html = render_hook(view, :key_nav, %{"key" => "s"})
 
       # Should still show same chapter
-      assert html =~ "Only Chapter"
-      assert html =~ "Only"
+      assert_current_section(view, section.title)
+      assert_current_sentence(view, sentence.text)
     end
 
     test "skip section does not mark skipped sentences as read", %{conn: conn} do
@@ -428,8 +425,7 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       # Check that skipped sentences are not marked as read
       # (This would require checking the database, which is done in context tests)
       # Here we just verify the navigation worked
-      html = render(view)
-      assert html =~ "Chapter 2"
+      assert_current_section(view, section2.title)
     end
 
     test "previous section button rewinds to start of current section", %{conn: conn} do
@@ -441,16 +437,16 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       create_tokens_for_sentence(sentence1, ["First", "chapter", "sentence", "."])
       create_tokens_for_sentence(sentence2, ["Second", "chapter", "sentence", "."])
 
-      {:ok, view, html} = live(conn, "/read/#{document.id}")
-      assert html =~ "First"
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+      assert_current_sentence(view, sentence1.text)
 
       # Move to second sentence in same section
-      html = render_hook(view, :key_nav, %{"key" => "j"})
-      assert html =~ "Second"
+      _html = render_hook(view, :key_nav, %{"key" => "j"})
+      assert_current_sentence(view, sentence2.text)
 
       # Rewind to section start
-      html = render_click(view, :previous_section)
-      assert html =~ "First"
+      _html = render_click(view, :previous_section)
+      assert_current_sentence(view, sentence1.text)
     end
 
     test "previous section button goes to previous section start when at section start", %{
@@ -466,18 +462,18 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       create_tokens_for_sentence(sentence1a, ["Chapter", "one", "first", "."])
       create_tokens_for_sentence(sentence2a, ["Chapter", "two", "first", "."])
 
-      {:ok, view, html} = live(conn, "/read/#{document.id}")
-      assert html =~ "Chapter 1"
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+      assert_current_section(view, section1.title)
 
       # Skip forward to start of section 2
-      html = render_click(view, :skip_section)
-      assert html =~ "Chapter 2"
-      assert html =~ "two"
+      _html = render_click(view, :skip_section)
+      assert_current_section(view, section2.title)
+      assert_current_sentence(view, sentence2a.text)
 
       # Rewind should go to start of previous section
-      html = render_click(view, :previous_section)
-      assert html =~ "Chapter 1"
-      assert html =~ "one"
+      _html = render_click(view, :previous_section)
+      assert_current_section(view, section1.title)
+      assert_current_sentence(view, sentence1a.text)
     end
   end
 
@@ -494,12 +490,14 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
       # Click on the second token (index 2, since Enum.with_index starts at 1)
-      html = render_click(view, :click_token, %{"token_index" => "2"})
+      _html = render_click(view, :click_token, %{"token_index" => "2"})
 
       # Should show focus indicator
-      assert html =~ "token-focused"
-      assert html =~ "second"
-      assert html =~ "token-learning"
+      assert has_element?(
+               view,
+               ".current-sentence .token.token-focused.token-learning[data-token-index='2'][data-token-status='learning']"
+             )
+
       assert view |> has_element?("[data-testid='llm-popup']")
 
       Lex.LLM.ClientMock.clear_mock()
@@ -515,14 +513,44 @@ defmodule LexWeb.ReaderLive.KeyboardTest do
       {:ok, view, _html} = live(conn, "/read/#{document.id}")
 
       # Try to focus punctuation token
-      html = render_click(view, :click_token, %{"token_index" => "3"})
+      _html = render_click(view, :click_token, %{"token_index" => "3"})
 
       # Focus should remain unset
-      refute html =~ "token-focused"
+      refute has_element?(view, ".current-sentence .token.token-focused")
     end
   end
 
   # Helper functions for creating test data
+
+  defp assert_focused_token(view, token_index) do
+    assert has_element?(
+             view,
+             ".current-sentence .token.token-focused[data-token-index='#{token_index}']"
+           )
+  end
+
+  defp assert_current_section(view, section_title) do
+    assert has_element?(view, ".reader-footer-section", section_title)
+  end
+
+  defp assert_current_sentence(view, sentence_text) do
+    current_sentence_text =
+      view
+      |> element(".current-sentence")
+      |> render()
+      |> normalized_sentence_text()
+
+    assert current_sentence_text =~ normalized_sentence_text(sentence_text)
+  end
+
+  defp normalized_sentence_text(text) do
+    text
+    |> Floki.parse_fragment!()
+    |> Floki.text(sep: " ")
+    |> String.replace(~r/\s+/, " ")
+    |> String.replace(~r/\s+([[:punct:]])/, "\\1")
+    |> String.trim()
+  end
 
   defp create_user do
     %User{}
