@@ -139,6 +139,28 @@ defmodule LexWeb.StatsLive.IndexTest do
                ".stats-legend .legend-toggle.is-hidden[phx-value-series='words-read']"
              )
     end
+
+    test "limits x-axis labels to six evenly spaced dates", %{conn: conn} do
+      user = create_user()
+
+      for day <- 2..11 do
+        create_lexeme_state(
+          user,
+          "seen",
+          ~U[2026-01-01 12:00:00Z] |> DateTime.add((day - 1) * 86_400),
+          nil,
+          nil
+        )
+      end
+
+      {:ok, view, _html} = live(conn, "/stats")
+
+      labels = axis_labels(render(view))
+
+      assert length(labels) <= 6
+      assert hd(labels) == "02/01"
+      assert List.last(labels) == "11/01"
+    end
   end
 
   defp create_user do
@@ -269,6 +291,17 @@ defmodule LexWeb.StatsLive.IndexTest do
       |> Floki.text()
       |> String.trim()
       |> String.to_integer()
+    end)
+  end
+
+  defp axis_labels(html) do
+    html
+    |> Floki.parse_document!()
+    |> Floki.find(".stats-chart .axis-label")
+    |> Enum.map(fn label ->
+      label
+      |> Floki.text()
+      |> String.trim()
     end)
   end
 end

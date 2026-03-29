@@ -23,6 +23,7 @@ defmodule LexWeb.StatsLive.Index do
   @chart_padding_right 16
   @chart_padding_top 16
   @chart_padding_bottom 32
+  @max_x_ticks 6
 
   @impl true
   def mount(_params, _session, socket) do
@@ -95,13 +96,13 @@ defmodule LexWeb.StatsLive.Index do
     do: Repo.one(from(u in User, order_by: [asc: u.id], limit: 1, select: u.id))
 
   defp load_timeline(user_id) do
-    read_by_bucket = count_lexemes_per_twenty_minutes(user_id, :first_seen_at)
-    known_by_bucket = count_lexemes_per_twenty_minutes(user_id, :known_at)
-    words_read_by_bucket = count_words_read_per_twenty_minutes(user_id)
+    read_by_bucket = count_lexemes_per_hour(user_id, :first_seen_at)
+    known_by_bucket = count_lexemes_per_hour(user_id, :known_at)
+    words_read_by_bucket = count_words_read_per_hour(user_id)
 
     all_buckets =
       (Map.keys(read_by_bucket) ++ Map.keys(known_by_bucket) ++ Map.keys(words_read_by_bucket))
-      |> all_twenty_minute_buckets()
+      |> all_hourly_buckets()
 
     {timeline, _running} =
       Enum.reduce(all_buckets, {[], %{seen: 0, known: 0, words_read: 0}}, fn bucket,
@@ -129,14 +130,14 @@ defmodule LexWeb.StatsLive.Index do
     |> prepend_zero_start()
   end
 
-  defp all_twenty_minute_buckets([]), do: []
+  defp all_hourly_buckets([]), do: []
 
-  defp all_twenty_minute_buckets(bucket_strings) do
+  defp all_hourly_buckets(bucket_strings) do
     bucket_datetimes = Enum.map(bucket_strings, &parse_bucket!/1)
     start_bucket = Enum.min(bucket_datetimes, NaiveDateTime)
     end_bucket = Enum.max(bucket_datetimes, NaiveDateTime)
 
-    Stream.iterate(start_bucket, &NaiveDateTime.add(&1, 1200, :second))
+    Stream.iterate(start_bucket, &NaiveDateTime.add(&1, 3600, :second))
     |> Enum.take_while(&(NaiveDateTime.compare(&1, end_bucket) != :gt))
     |> Enum.map(&format_bucket/1)
   end
@@ -146,7 +147,7 @@ defmodule LexWeb.StatsLive.Index do
   defp prepend_zero_start([first_point | _] = timeline) do
     [
       %{
-        bucket: previous_twenty_minute_bucket(first_point.bucket),
+        bucket: previous_hourly_bucket(first_point.bucket),
         learning: 0,
         known: 0,
         words_read: 0
@@ -155,10 +156,10 @@ defmodule LexWeb.StatsLive.Index do
     ]
   end
 
-  defp previous_twenty_minute_bucket(twenty_minute_bucket) do
-    twenty_minute_bucket
+  defp previous_hourly_bucket(hourly_bucket) do
+    hourly_bucket
     |> parse_bucket!()
-    |> NaiveDateTime.add(-1200, :second)
+    |> NaiveDateTime.add(-3600, :second)
     |> format_bucket()
   end
 
@@ -169,31 +170,23 @@ defmodule LexWeb.StatsLive.Index do
   end
 
   defp format_bucket(naive_datetime) do
-    Calendar.strftime(naive_datetime, "%Y-%m-%d %H:%M:00")
+    Calendar.strftime(naive_datetime, "%Y-%m-%d %H:00:00")
   end
 
-  defp count_lexemes_per_twenty_minutes(user_id, timestamp_field) do
+  defp count_lexemes_per_hour(user_id, timestamp_field) do
     UserLexemeState
     |> where([s], s.user_id == ^user_id)
     |> where([s], not is_nil(field(s, ^timestamp_field)))
     |> group_by(
       [s],
-      fragment(
-        "strftime('%Y-%m-%d %H:', ?) || printf('%02d:00', (cast(strftime('%M', ?) as integer) / 20) * 20)",
-        field(s, ^timestamp_field),
-        field(s, ^timestamp_field)
-      )
+      fragment("strftime('%Y-%m-%d %H:00:00', ?)", field(s, ^timestamp_field))
     )
     |> select(
       [
         s
       ],
       {
-        fragment(
-          "strftime('%Y-%m-%d %H:', ?) || printf('%02d:00', (cast(strftime('%M', ?) as integer) / 20) * 20)",
-          field(s, ^timestamp_field),
-          field(s, ^timestamp_field)
-        ),
+        fragment("strftime('%Y-%m-%d %H:00:00', ?)", field(s, ^timestamp_field)),
         count(s.id)
       }
     )
@@ -270,7 +263,7 @@ defmodule LexWeb.StatsLive.Index do
     |> Kernel.||(0)
   end
 
-  defp count_words_read_per_twenty_minutes(user_id) do
+  defp count_words_read_per_hour(user_id) do
     UserSentenceState
     |> join(:inner, [uss], t in Token, on: t.sentence_id == uss.sentence_id)
     |> where(
@@ -280,20 +273,12 @@ defmodule LexWeb.StatsLive.Index do
     )
     |> group_by(
       [uss, _t],
-      fragment(
-        "strftime('%Y-%m-%d %H:', ?) || printf('%02d:00', (cast(strftime('%M', ?) as integer) / 20) * 20)",
-        uss.read_at,
-        uss.read_at
-      )
+      fragment("strftime('%Y-%m-%d %H:00:00', ?)", uss.read_at)
     )
     |> select(
       [uss, t],
       {
-        fragment(
-          "strftime('%Y-%m-%d %H:', ?) || printf('%02d:00', (cast(strftime('%M', ?) as integer) / 20) * 20)",
-          uss.read_at,
-          uss.read_at
-        ),
+        fragment("strftime('%Y-%m-%d %H:00:00', ?)", uss.read_at),
         count(t.id)
       }
     )
@@ -656,6 +641,7 @@ defmodule LexWeb.StatsLive.Index do
 
     ticks
     |> Enum.uniq_by(& &1.index)
+    |> downsample_ticks_evenly(@max_x_ticks)
     |> Enum.map(fn %{index: index, datetime: datetime} ->
       %{
         x: round_svg_coord(point_x(index, size, width)),
@@ -694,4 +680,17 @@ defmodule LexWeb.StatsLive.Index do
   defp x_tick_anchor(0, _size), do: "start"
   defp x_tick_anchor(index, size) when index == size - 1, do: "end"
   defp x_tick_anchor(_index, _size), do: "middle"
+
+  defp downsample_ticks_evenly(ticks, max_ticks) when length(ticks) <= max_ticks, do: ticks
+
+  defp downsample_ticks_evenly(ticks, max_ticks) do
+    tick_count = length(ticks)
+
+    0..(max_ticks - 1)
+    |> Enum.map(fn step ->
+      round(step * (tick_count - 1) / (max_ticks - 1))
+    end)
+    |> Enum.uniq()
+    |> Enum.map(&Enum.at(ticks, &1))
+  end
 end
