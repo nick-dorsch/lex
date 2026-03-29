@@ -121,7 +121,7 @@
       <p class="stats-empty">No learning lexemes yet.</p>
     <% else %>
       <div class="stats-learning-table-wrap">
-        <% learning_table_headers = ["Lemma", "Seen Count", "Document", "Most Recent Sentence", "First Seen"] %>
+        <% learning_table_headers = ["Lemma", "Seen Count", "Document", "Most Recent Sentence", "First Seen", "Last Seen"] %>
         <table class="stats-learning-table">
           <thead>
             <tr>
@@ -154,6 +154,13 @@
                 <td>
                   <%= if item.first_seen_at do %>
                     <%= Calendar.strftime(item.first_seen_at, "%m/%d/%Y") %>
+                  <% else %>
+                    -
+                  <% end %>
+                </td>
+                <td>
+                  <%= if item.last_seen_at do %>
+                    <%= Calendar.strftime(item.last_seen_at, "%m/%d/%Y") %>
                   <% else %>
                     -
                   <% end %>

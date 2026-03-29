@@ -205,7 +205,8 @@ defmodule LexWeb.StatsLive.Index do
         lexeme_id: uls.lexeme_id,
         normalized_lemma: lex.normalized_lemma,
         seen_count: uls.seen_count,
-        first_seen_at: uls.first_seen_at
+        first_seen_at: uls.first_seen_at,
+        last_seen_at: uls.last_seen_at
       })
       |> Repo.all()
 
