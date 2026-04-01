@@ -941,6 +941,15 @@
     padding-top: var(--reader-context-gap);
   }
 
+  .reader-chapter-separator {
+    display: block;
+    border: 0;
+    border-top: 1px solid rgba(123, 97, 73, 0.62);
+    width: 100%;
+    align-self: stretch;
+    margin: 0.65rem 0;
+  }
+
   .reader-hint {
     color: var(--warm-text-subtle);
   }

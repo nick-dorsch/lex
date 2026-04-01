@@ -116,6 +116,24 @@ defmodule LexWeb.ReaderLive.ShowTest do
       assert_current_sentence(view, sentence_2.text)
       refute_current_sentence(view, sentence_3.text)
     end
+
+    test "renders chapter separator when next context crosses sections", %{conn: conn} do
+      user = create_user()
+      document = create_ready_document(user)
+
+      section_1 = create_section_at_position(document, 1, "Chapter 1")
+      section_2 = create_section_at_position(document, 2, "Chapter 2")
+
+      sentence_1 = create_sentence(section_1, 1, "End of chapter one.")
+      sentence_2 = create_sentence(section_2, 1, "Start of chapter two.")
+
+      create_tokens_for_sentence(sentence_1, ["End", "of", "chapter", "one", "."])
+      create_tokens_for_sentence(sentence_2, ["Start", "of", "chapter", "two", "."])
+
+      {:ok, view, _html} = live(conn, "/read/#{document.id}")
+
+      assert has_element?(view, "[data-testid='chapter-separator']")
+    end
   end
 
   describe "llm_help" do
@@ -907,6 +925,16 @@ defmodule LexWeb.ReaderLive.ShowTest do
     |> Section.changeset(%{
       document_id: document.id,
       position: 1,
+      title: title
+    })
+    |> Repo.insert!()
+  end
+
+  defp create_section_at_position(document, position, title) do
+    %Section{}
+    |> Section.changeset(%{
+      document_id: document.id,
+      position: position,
       title: title
     })
     |> Repo.insert!()

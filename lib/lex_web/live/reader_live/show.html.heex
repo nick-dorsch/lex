@@ -155,8 +155,18 @@
           <div class="reader-sentence-stage w-full max-w-4xl h-full mx-auto overflow-hidden">
             <!-- Previous sentence (muted, smaller) -->
             <div class="prev-sentence reader-context-sentence reader-context-prev text-lg text-left w-full leading-relaxed flex flex-col justify-end gap-2">
-            <%= for sentence <- @prev_sentences do %>
-              <p><%= sentence.text %></p>
+            <%= for {entry, index} <- Enum.with_index(@prev_sentences) do %>
+              <p><%= entry.sentence.text %></p>
+              <% next_entry = Enum.at(@prev_sentences, index + 1)
+                 next_section_id = if next_entry, do: next_entry.section.id, else: @section.id
+              %>
+              <%= if entry.section.id != next_section_id do %>
+                <br />
+                <br />
+                <hr class="reader-chapter-separator" data-testid="chapter-separator" aria-hidden="true" />
+                <br />
+                <br />
+              <% end %>
             <% end %>
             <%= for _ <- List.duplicate(nil, max(0, @context_sentence_count - length(@prev_sentences))) do %>
               <p class="opacity-0">.</p>
@@ -208,8 +218,22 @@
 
             <!-- Next sentence (muted, smaller) -->
             <div class="next-sentence reader-context-sentence reader-context-next text-lg text-left w-full leading-relaxed flex flex-col gap-2">
-            <%= for sentence <- @next_sentences do %>
-              <p><%= sentence.text %></p>
+            <%= for {entry, index} <- Enum.with_index(@next_sentences) do %>
+              <% previous_section_id =
+                if index == 0 do
+                  @section.id
+                else
+                  Enum.at(@next_sentences, index - 1).section.id
+                end
+              %>
+              <%= if entry.section.id != previous_section_id do %>
+                <br />
+                <br />
+                <hr class="reader-chapter-separator" data-testid="chapter-separator" aria-hidden="true" />
+                <br />
+                <br />
+              <% end %>
+              <p><%= entry.sentence.text %></p>
             <% end %>
             <%= for _ <- List.duplicate(nil, max(0, @context_sentence_count - length(@next_sentences))) do %>
               <p class="opacity-0">.</p>

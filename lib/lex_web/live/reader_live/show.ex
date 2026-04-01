@@ -1099,7 +1099,7 @@ defmodule LexWeb.ReaderLive.Show do
           next_sentence.id,
           direction,
           remaining - 1,
-          acc ++ [next_sentence]
+          acc ++ [%{section: next_section, sentence: next_sentence}]
         )
 
       {:error, _} ->
