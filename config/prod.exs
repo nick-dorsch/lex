@@ -7,6 +7,7 @@ config :logger,
 config :lex, LexWeb.Endpoint,
   http: [port: System.get_env("PORT") || 4000],
   url: [host: System.get_env("HOST") || "localhost"],
+  check_origin: :conn,
   secret_key_base: System.get_env("SECRET_KEY_BASE"),
   cache_static_manifest: "priv/static/cache_manifest.json",
   server: true
